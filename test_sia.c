@@ -1,8 +1,14 @@
+// TODO: Tests should probably be divided into separated modules. Not so modular
+// to keep them in almost 2k line file.
+
 #include "ast.h"
+#include "canonical.h"
 #include "eval.h"
 #include "lexer.h"
+#include "matrix.h"
 #include "parser.h"
 #include "symbolic.h"
+#include "symtab.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -15,7 +21,7 @@ static int tests_passed = 0;
 #define TEST(name)                                                             \
   do {                                                                         \
     tests_run++;                                                               \
-    printf("  %-50s", name);                                                   \
+    printf("  %-55s", name);                                                   \
   } while (0)
 #define PASS()                                                                 \
   do {                                                                         \
@@ -60,6 +66,12 @@ static int tests_passed = 0;
     }                                                                          \
   } while (0)
 
+static int is_num_node(const AstNode *n, double v) {
+  return n && n->type == AST_NUMBER && fabs(n->as.number - v) < 1e-9;
+}
+
+/* Lexer*/
+
 static void test_lexer_basic(void) {
   TEST("lexer: basic tokens");
   Lexer lex;
@@ -80,7 +92,6 @@ static void test_lexer_basic(void) {
   ASSERT_NEAR(t.numval, 4.0, 1e-9);
   t = lexer_next(&lex);
   ASSERT_EQ(t.type, TOK_EOF);
-
   PASS();
 }
 
@@ -134,6 +145,8 @@ static void test_lexer_error(void) {
   PASS();
 }
 
+/* Parser */
+
 static void test_parser_number(void) {
   TEST("parser: simple number");
   ParseResult r = parse("42");
@@ -149,7 +162,6 @@ static void test_parser_precedence(void) {
   TEST("parser: operator precedence 2+2*2");
   ParseResult r = parse("2+2*2");
   ASSERT_TRUE(r.root != NULL);
-  /* should be ADD(2, MUL(2, 2)) */
   ASSERT_EQ(r.root->type, AST_BINOP);
   ASSERT_EQ(r.root->as.binop.op, OP_ADD);
   ASSERT_EQ(r.root->as.binop.left->type, AST_NUMBER);
@@ -163,7 +175,6 @@ static void test_parser_parens(void) {
   TEST("parser: parentheses (2+2)*2");
   ParseResult r = parse("(2+2)*2");
   ASSERT_TRUE(r.root != NULL);
-  /* should be MUL(ADD(2,2), 2) */
   ASSERT_EQ(r.root->type, AST_BINOP);
   ASSERT_EQ(r.root->as.binop.op, OP_MUL);
   ASSERT_EQ(r.root->as.binop.left->type, AST_BINOP);
@@ -214,6 +225,8 @@ static void test_parser_error(void) {
   PASS();
 }
 
+/* AST */
+
 static void test_ast_clone(void) {
   TEST("ast: clone preserves structure");
   ParseResult r = parse("2*x + 1");
@@ -240,11 +253,13 @@ static void test_ast_to_string(void) {
   PASS();
 }
 
+/* Eval */
+
 static void test_eval_arithmetic(void) {
   TEST("eval: basic arithmetic 2+3*4");
   ParseResult r = parse("2+3*4");
   ASSERT_TRUE(r.root != NULL);
-  EvalResult e = eval(r.root);
+  EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
   ASSERT_NEAR(e.value, 14.0, 1e-9);
   eval_result_free(&e);
@@ -255,7 +270,7 @@ static void test_eval_arithmetic(void) {
 static void test_eval_power(void) {
   TEST("eval: power 2^10");
   ParseResult r = parse("2^10");
-  EvalResult e = eval(r.root);
+  EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
   ASSERT_NEAR(e.value, 1024.0, 1e-9);
   eval_result_free(&e);
@@ -266,7 +281,7 @@ static void test_eval_power(void) {
 static void test_eval_functions(void) {
   TEST("eval: sin(0) = 0");
   ParseResult r = parse("sin(0)");
-  EvalResult e = eval(r.root);
+  EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
   ASSERT_NEAR(e.value, 0.0, 1e-9);
   eval_result_free(&e);
@@ -277,7 +292,7 @@ static void test_eval_functions(void) {
 static void test_eval_cos(void) {
   TEST("eval: cos(0) = 1");
   ParseResult r = parse("cos(0)");
-  EvalResult e = eval(r.root);
+  EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
   ASSERT_NEAR(e.value, 1.0, 1e-9);
   eval_result_free(&e);
@@ -288,7 +303,7 @@ static void test_eval_cos(void) {
 static void test_eval_sqrt(void) {
   TEST("eval: sqrt(144) = 12");
   ParseResult r = parse("sqrt(144)");
-  EvalResult e = eval(r.root);
+  EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
   ASSERT_NEAR(e.value, 12.0, 1e-9);
   eval_result_free(&e);
@@ -299,7 +314,7 @@ static void test_eval_sqrt(void) {
 static void test_eval_pi(void) {
   TEST("eval: pi constant");
   ParseResult r = parse("pi");
-  EvalResult e = eval(r.root);
+  EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
   ASSERT_NEAR(e.value, M_PI, 1e-9);
   eval_result_free(&e);
@@ -310,7 +325,7 @@ static void test_eval_pi(void) {
 static void test_eval_complex_expr(void) {
   TEST("eval: (3+4)*(2-1)^2 = 7");
   ParseResult r = parse("(3+4)*(2-1)^2");
-  EvalResult e = eval(r.root);
+  EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
   ASSERT_NEAR(e.value, 7.0, 1e-9);
   eval_result_free(&e);
@@ -321,7 +336,7 @@ static void test_eval_complex_expr(void) {
 static void test_eval_div_zero(void) {
   TEST("eval: division by zero error");
   ParseResult r = parse("1/0");
-  EvalResult e = eval(r.root);
+  EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(!e.ok);
   ASSERT_TRUE(e.error != NULL);
   eval_result_free(&e);
@@ -332,7 +347,7 @@ static void test_eval_div_zero(void) {
 static void test_eval_nested_func(void) {
   TEST("eval: sqrt(abs(-16)) = 4");
   ParseResult r = parse("sqrt(abs(-16))");
-  EvalResult e = eval(r.root);
+  EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
   ASSERT_NEAR(e.value, 4.0, 1e-9);
   eval_result_free(&e);
@@ -340,10 +355,40 @@ static void test_eval_nested_func(void) {
   PASS();
 }
 
-/* helper for simplify tests */
-static int is_num_node(const AstNode *n, double v) {
-  return n && n->type == AST_NUMBER && fabs(n->as.number - v) < 1e-9;
+static void test_eval_symtab(void) {
+  TEST("eval: symbol table lookup");
+  SymTab st;
+  symtab_init(&st);
+  symtab_set(&st, "g", 9.81);
+  ParseResult r = parse("g");
+  EvalResult e = eval(r.root, &st);
+  ASSERT_TRUE(e.ok);
+  ASSERT_NEAR(e.value, 9.81, 1e-9);
+  eval_result_free(&e);
+  parse_result_free(&r);
+  symtab_free(&st);
+  PASS();
 }
+
+static void test_eval_hyperbolic(void) {
+  TEST("eval: sinh(0) = 0, cosh(0) = 1");
+  ParseResult r1 = parse("sinh(0)");
+  EvalResult e1 = eval(r1.root, NULL);
+  ASSERT_TRUE(e1.ok);
+  ASSERT_NEAR(e1.value, 0.0, 1e-9);
+  eval_result_free(&e1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("cosh(0)");
+  EvalResult e2 = eval(r2.root, NULL);
+  ASSERT_TRUE(e2.ok);
+  ASSERT_NEAR(e2.value, 1.0, 1e-9);
+  eval_result_free(&e2);
+  parse_result_free(&r2);
+  PASS();
+}
+
+/* Symbolic */
 
 static void test_simplify_zero_mul(void) {
   TEST("simplify: 0 * x -> 0");
@@ -377,13 +422,113 @@ static void test_simplify_const_fold(void) {
   PASS();
 }
 
+static void test_simplify_x_minus_x(void) {
+  TEST("simplify: x - x -> 0");
+  ParseResult r = parse("x - x");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  ASSERT_TRUE(is_num_node(s, 0));
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_simplify_x_plus_x(void) {
+  TEST("simplify: x + x -> 2*x");
+  ParseResult r = parse("x + x");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "2*x");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_simplify_x_times_x(void) {
+  TEST("simplify: x * x -> x^2");
+  ParseResult r = parse("x * x");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "x^2");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_simplify_x_div_x(void) {
+  TEST("simplify: x / x -> 1");
+  ParseResult r = parse("x / x");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  ASSERT_TRUE(is_num_node(s, 1));
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_simplify_power_of_power(void) {
+  TEST("simplify: (x^2)^3 -> x^6");
+  ParseResult r = parse("(x^2)^3");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "x^6");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_simplify_one_pow(void) {
+  TEST("simplify: 1^x -> 1");
+  ParseResult r = parse("1^x");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  ASSERT_TRUE(is_num_node(s, 1));
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_simplify_double_neg(void) {
+  TEST("simplify: -(-x) -> x");
+  AstNode *x = ast_variable("x", 1);
+  AstNode *neg = ast_unary_neg(ast_unary_neg(x));
+  AstNode *s = sym_simplify(neg);
+  ASSERT_EQ(s->type, AST_VARIABLE);
+  ASSERT_STR_EQ(s->as.variable, "x");
+  ast_free(s);
+  PASS();
+}
+
+static void test_simplify_mul_neg_one(void) {
+  TEST("simplify: (-1)*x -> (-x)");
+  ParseResult r = parse("(-1)*x");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  ASSERT_EQ(s->type, AST_UNARY_NEG);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_simplify_coeff_merge(void) {
+  TEST("simplify: 2*(3*x) -> 6*x");
+  ParseResult r = parse("2*(3*x)");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "6*x");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+/* Differentiation */
+
 static void test_diff_constant(void) {
   TEST("diff: d/dx(5) = 0");
   ParseResult r = parse("5");
   AstNode *d = sym_diff(r.root, "x");
   ASSERT_TRUE(d != NULL);
-  ASSERT_EQ(d->type, AST_NUMBER);
-  ASSERT_NEAR(d->as.number, 0.0, 1e-9);
+  ASSERT_TRUE(is_num_node(d, 0));
   ast_free(d);
   parse_result_free(&r);
   PASS();
@@ -394,8 +539,7 @@ static void test_diff_variable(void) {
   ParseResult r = parse("x");
   AstNode *d = sym_diff(r.root, "x");
   ASSERT_TRUE(d != NULL);
-  ASSERT_EQ(d->type, AST_NUMBER);
-  ASSERT_NEAR(d->as.number, 1.0, 1e-9);
+  ASSERT_TRUE(is_num_node(d, 1));
   ast_free(d);
   parse_result_free(&r);
   PASS();
@@ -419,9 +563,8 @@ static void test_diff_polynomial(void) {
   ParseResult r = parse("3*x^2 + 2*x + 1");
   AstNode *d = sym_diff(r.root, "x");
   ASSERT_TRUE(d != NULL);
-  /* should simplify to 6*x + 2 */
   char *s = ast_to_string(d);
-  ASSERT_STR_EQ(s, "3*2*x + 2");
+  ASSERT_STR_EQ(s, "6*x + 2");
   free(s);
   ast_free(d);
   parse_result_free(&r);
@@ -440,6 +583,97 @@ static void test_diff_sin(void) {
   parse_result_free(&r);
   PASS();
 }
+
+static void test_diff_cos(void) {
+  TEST("diff: d/dx(cos(x)) = -sin(x)");
+  ParseResult r = parse("cos(x)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "(-sin(x))");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_exp(void) {
+  TEST("diff: d/dx(exp(x)) = exp(x)");
+  ParseResult r = parse("exp(x)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "exp(x)");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_ln(void) {
+  TEST("diff: d/dx(ln(x)) = 1/x");
+  ParseResult r = parse("ln(x)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "1/x");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_chain_sin_x2(void) {
+  TEST("diff: d/dx(sin(x^2)) uses chain rule");
+  ParseResult r = parse("sin(x^2)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "cos(x^2)*2*x");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_x_to_x(void) {
+  TEST("diff: d/dx(x^x) via f^g formula");
+  ParseResult r = parse("x^x");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  /* x^x * (1*ln(x) + x*1/x) should simplify to x^x * (ln(x) + 1) */
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_asin(void) {
+  TEST("diff: d/dx(asin(x))");
+  ParseResult r = parse("asin(x)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "1/sqrt(1 - x^2)");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_atan(void) {
+  TEST("diff: d/dx(atan(x)) = 1/(1+x^2)");
+  ParseResult r = parse("atan(x)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "1/(1 + x^2)");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+/* Integration */
 
 static void test_integrate_x(void) {
   TEST("int: integral(x, x) = x^2/2");
@@ -493,6 +727,345 @@ static void test_integrate_x_squared(void) {
   PASS();
 }
 
+static void test_integrate_sin(void) {
+  TEST("int: integral(sin(x), x) = -cos(x)");
+  ParseResult r = parse("sin(x)");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_STR_EQ(s, "(-cos(x))");
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_cos(void) {
+  TEST("int: integral(cos(x), x) = sin(x)");
+  ParseResult r = parse("cos(x)");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_STR_EQ(s, "sin(x)");
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_exp(void) {
+  TEST("int: integral(exp(x), x) = exp(x)");
+  ParseResult r = parse("exp(x)");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_STR_EQ(s, "exp(x)");
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_1_over_x(void) {
+  TEST("int: integral(x^(-1), x) = ln(x)");
+  ParseResult r = parse("x^(-1)");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_STR_EQ(s, "ln(x)");
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+/* Canonical Form */
+
+static void test_canonical_sub_to_add(void) {
+  TEST("canonical: A - B -> A + (-1)*B");
+  ParseResult r = parse("x - y");
+  AstNode *c = canonicalize(ast_clone(r.root));
+  ASSERT_EQ(c->type, AST_BINOP);
+  ASSERT_EQ(c->as.binop.op, OP_ADD);
+  ast_free(c);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_canonical_div_to_mul(void) {
+  TEST("canonical: A / B -> A * B^(-1)");
+  ParseResult r = parse("x / y");
+  AstNode *c = canonicalize(ast_clone(r.root));
+  ASSERT_EQ(c->type, AST_BINOP);
+  ASSERT_EQ(c->as.binop.op, OP_MUL);
+  ASSERT_EQ(c->as.binop.right->type, AST_BINOP);
+  ASSERT_EQ(c->as.binop.right->as.binop.op, OP_POW);
+  ast_free(c);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_canonical_sort(void) {
+  TEST("canonical: commutative sort x + 2 -> 2 + x");
+  ParseResult r = parse("x + 2");
+  AstNode *c = canonicalize(ast_clone(r.root));
+  /* after canonicalize, constants sort before variables */
+  ASSERT_EQ(c->type, AST_BINOP);
+  ASSERT_EQ(c->as.binop.op, OP_ADD);
+  /* left should be number (sort key 0), right variable (sort key 1) */
+  ASSERT_EQ(c->as.binop.left->type, AST_NUMBER);
+  ASSERT_EQ(c->as.binop.right->type, AST_VARIABLE);
+  ast_free(c);
+  parse_result_free(&r);
+  PASS();
+}
+
+/* Symbol Table */
+
+static void test_symtab_set_get(void) {
+  TEST("symtab: set and get value");
+  SymTab st;
+  symtab_init(&st);
+  symtab_set(&st, "x", 42.0);
+  double val;
+  ASSERT_TRUE(symtab_get(&st, "x", &val));
+  ASSERT_NEAR(val, 42.0, 1e-9);
+  symtab_free(&st);
+  PASS();
+}
+
+static void test_symtab_overwrite(void) {
+  TEST("symtab: overwrite existing value");
+  SymTab st;
+  symtab_init(&st);
+  symtab_set(&st, "x", 1.0);
+  symtab_set(&st, "x", 2.0);
+  double val;
+  ASSERT_TRUE(symtab_get(&st, "x", &val));
+  ASSERT_NEAR(val, 2.0, 1e-9);
+  symtab_free(&st);
+  PASS();
+}
+
+static void test_symtab_missing(void) {
+  TEST("symtab: missing key returns 0");
+  SymTab st;
+  symtab_init(&st);
+  double val;
+  ASSERT_TRUE(!symtab_get(&st, "nope", &val));
+  symtab_free(&st);
+  PASS();
+}
+
+static void test_symtab_remove(void) {
+  TEST("symtab: remove entry");
+  SymTab st;
+  symtab_init(&st);
+  symtab_set(&st, "x", 1.0);
+  symtab_remove(&st, "x");
+  double val;
+  ASSERT_TRUE(!symtab_get(&st, "x", &val));
+  symtab_free(&st);
+  PASS();
+}
+
+static void test_symtab_expr(void) {
+  TEST("symtab: store and retrieve expression");
+  SymTab st;
+  symtab_init(&st);
+  AstNode *expr = ast_binop(OP_ADD, ast_variable("x", 1), ast_number(1));
+  symtab_set_expr(&st, "f", expr);
+  AstNode *got = symtab_get_expr(&st, "f");
+  ASSERT_TRUE(got != NULL);
+  char *s = ast_to_string(got);
+  ASSERT_STR_EQ(s, "x + 1");
+  free(s);
+  symtab_free(&st);
+  PASS();
+}
+
+/* Matrix */
+
+static void test_matrix_create(void) {
+  TEST("matrix: create and access");
+  Matrix *m = matrix_create(2, 2);
+  matrix_set(m, 0, 0, 1.0);
+  matrix_set(m, 0, 1, 2.0);
+  matrix_set(m, 1, 0, 3.0);
+  matrix_set(m, 1, 1, 4.0);
+  ASSERT_NEAR(matrix_get(m, 0, 0), 1.0, 1e-9);
+  ASSERT_NEAR(matrix_get(m, 1, 1), 4.0, 1e-9);
+  matrix_free(m);
+  PASS();
+}
+
+static void test_matrix_add(void) {
+  TEST("matrix: addition");
+  Matrix *a = matrix_create(2, 2);
+  Matrix *b = matrix_create(2, 2);
+  matrix_set(a, 0, 0, 1);
+  matrix_set(a, 0, 1, 2);
+  matrix_set(a, 1, 0, 3);
+  matrix_set(a, 1, 1, 4);
+  matrix_set(b, 0, 0, 5);
+  matrix_set(b, 0, 1, 6);
+  matrix_set(b, 1, 0, 7);
+  matrix_set(b, 1, 1, 8);
+  Matrix *c = matrix_add(a, b);
+  ASSERT_TRUE(c != NULL);
+  ASSERT_NEAR(matrix_get(c, 0, 0), 6.0, 1e-9);
+  ASSERT_NEAR(matrix_get(c, 1, 1), 12.0, 1e-9);
+  matrix_free(a);
+  matrix_free(b);
+  matrix_free(c);
+  PASS();
+}
+
+static void test_matrix_mul(void) {
+  TEST("matrix: multiplication");
+  Matrix *a = matrix_create(2, 2);
+  Matrix *b = matrix_create(2, 2);
+  matrix_set(a, 0, 0, 1);
+  matrix_set(a, 0, 1, 2);
+  matrix_set(a, 1, 0, 3);
+  matrix_set(a, 1, 1, 4);
+  matrix_set(b, 0, 0, 5);
+  matrix_set(b, 0, 1, 6);
+  matrix_set(b, 1, 0, 7);
+  matrix_set(b, 1, 1, 8);
+  Matrix *c = matrix_mul(a, b);
+  ASSERT_TRUE(c != NULL);
+  ASSERT_NEAR(matrix_get(c, 0, 0), 19.0, 1e-9);
+  ASSERT_NEAR(matrix_get(c, 0, 1), 22.0, 1e-9);
+  ASSERT_NEAR(matrix_get(c, 1, 0), 43.0, 1e-9);
+  ASSERT_NEAR(matrix_get(c, 1, 1), 50.0, 1e-9);
+  matrix_free(a);
+  matrix_free(b);
+  matrix_free(c);
+  PASS();
+}
+
+static void test_matrix_det(void) {
+  TEST("matrix: determinant 2x2");
+  Matrix *m = matrix_create(2, 2);
+  matrix_set(m, 0, 0, 1);
+  matrix_set(m, 0, 1, 2);
+  matrix_set(m, 1, 0, 3);
+  matrix_set(m, 1, 1, 4);
+  ASSERT_NEAR(matrix_det(m), -2.0, 1e-9);
+  matrix_free(m);
+  PASS();
+}
+
+static void test_matrix_det_3x3(void) {
+  TEST("matrix: determinant 3x3");
+  Matrix *m = matrix_create(3, 3);
+  matrix_set(m, 0, 0, 6);
+  matrix_set(m, 0, 1, 1);
+  matrix_set(m, 0, 2, 1);
+  matrix_set(m, 1, 0, 4);
+  matrix_set(m, 1, 1, -2);
+  matrix_set(m, 1, 2, 5);
+  matrix_set(m, 2, 0, 2);
+  matrix_set(m, 2, 1, 8);
+  matrix_set(m, 2, 2, 7);
+  ASSERT_NEAR(matrix_det(m), -306.0, 1e-9);
+  matrix_free(m);
+  PASS();
+}
+
+static void test_matrix_inverse(void) {
+  TEST("matrix: inverse 2x2");
+  Matrix *m = matrix_create(2, 2);
+  matrix_set(m, 0, 0, 4);
+  matrix_set(m, 0, 1, 7);
+  matrix_set(m, 1, 0, 2);
+  matrix_set(m, 1, 1, 6);
+  Matrix *inv = matrix_inverse(m);
+  ASSERT_TRUE(inv != NULL);
+
+  /* M * M^-1 should be identity */
+  Matrix *id = matrix_mul(m, inv);
+  ASSERT_NEAR(matrix_get(id, 0, 0), 1.0, 1e-9);
+  ASSERT_NEAR(matrix_get(id, 0, 1), 0.0, 1e-9);
+  ASSERT_NEAR(matrix_get(id, 1, 0), 0.0, 1e-9);
+  ASSERT_NEAR(matrix_get(id, 1, 1), 1.0, 1e-9);
+  matrix_free(m);
+  matrix_free(inv);
+  matrix_free(id);
+  PASS();
+}
+
+static void test_matrix_transpose(void) {
+  TEST("matrix: transpose");
+  Matrix *m = matrix_create(2, 3);
+  matrix_set(m, 0, 0, 1);
+  matrix_set(m, 0, 1, 2);
+  matrix_set(m, 0, 2, 3);
+  matrix_set(m, 1, 0, 4);
+  matrix_set(m, 1, 1, 5);
+  matrix_set(m, 1, 2, 6);
+  Matrix *t = matrix_transpose(m);
+  ASSERT_EQ(t->rows, 3);
+  ASSERT_EQ(t->cols, 2);
+  ASSERT_NEAR(matrix_get(t, 0, 0), 1.0, 1e-9);
+  ASSERT_NEAR(matrix_get(t, 2, 1), 6.0, 1e-9);
+  matrix_free(m);
+  matrix_free(t);
+  PASS();
+}
+
+static void test_matrix_identity(void) {
+  TEST("matrix: identity 3x3");
+  Matrix *id = matrix_identity(3);
+  ASSERT_NEAR(matrix_get(id, 0, 0), 1.0, 1e-9);
+  ASSERT_NEAR(matrix_get(id, 1, 1), 1.0, 1e-9);
+  ASSERT_NEAR(matrix_get(id, 2, 2), 1.0, 1e-9);
+  ASSERT_NEAR(matrix_get(id, 0, 1), 0.0, 1e-9);
+  matrix_free(id);
+  PASS();
+}
+
+static void test_matrix_trace(void) {
+  TEST("matrix: trace");
+  Matrix *m = matrix_create(3, 3);
+  matrix_set(m, 0, 0, 1);
+  matrix_set(m, 1, 1, 5);
+  matrix_set(m, 2, 2, 9);
+  ASSERT_NEAR(matrix_trace(m), 15.0, 1e-9);
+  matrix_free(m);
+  PASS();
+}
+
+static void test_matrix_to_string(void) {
+  TEST("matrix: serialization");
+  Matrix *m = matrix_create(2, 2);
+  matrix_set(m, 0, 0, 1);
+  matrix_set(m, 0, 1, 2);
+  matrix_set(m, 1, 0, 3);
+  matrix_set(m, 1, 1, 4);
+  char *s = matrix_to_string(m);
+  ASSERT_STR_EQ(s, "[1, 2; 3, 4]");
+  free(s);
+  matrix_free(m);
+  PASS();
+}
+
+static void test_matrix_singular(void) {
+  TEST("matrix: inverse of singular returns NULL");
+  Matrix *m = matrix_create(2, 2);
+  matrix_set(m, 0, 0, 1);
+  matrix_set(m, 0, 1, 2);
+  matrix_set(m, 1, 0, 2);
+  matrix_set(m, 1, 1, 4);
+  Matrix *inv = matrix_inverse(m);
+  ASSERT_TRUE(inv == NULL);
+  matrix_free(m);
+  PASS();
+}
+
+/* Main */
+
 int main(void) {
   printf("=== sia test suite ===\n\n");
 
@@ -526,20 +1099,71 @@ int main(void) {
   test_eval_complex_expr();
   test_eval_div_zero();
   test_eval_nested_func();
+  test_eval_symtab();
+  test_eval_hyperbolic();
 
-  printf("\n[Symbolic]\n");
+  printf("\n[Symbolic - Simplify]\n");
   test_simplify_zero_mul();
   test_simplify_identity_add();
   test_simplify_const_fold();
+  test_simplify_x_minus_x();
+  test_simplify_x_plus_x();
+  test_simplify_x_times_x();
+  test_simplify_x_div_x();
+  test_simplify_power_of_power();
+  test_simplify_one_pow();
+  test_simplify_double_neg();
+  test_simplify_mul_neg_one();
+  test_simplify_coeff_merge();
+
+  printf("\n[Symbolic - Differentiation]\n");
   test_diff_constant();
   test_diff_variable();
   test_diff_x_squared();
   test_diff_polynomial();
   test_diff_sin();
+  test_diff_cos();
+  test_diff_exp();
+  test_diff_ln();
+  test_diff_chain_sin_x2();
+  test_diff_x_to_x();
+  test_diff_asin();
+  test_diff_atan();
+
+  printf("\n[Symbolic - Integration]\n");
   test_integrate_x();
   test_integrate_4x();
   test_integrate_constant();
   test_integrate_x_squared();
+  test_integrate_sin();
+  test_integrate_cos();
+  test_integrate_exp();
+  test_integrate_1_over_x();
+
+  printf("\n[Canonical Form]\n");
+  test_canonical_sub_to_add();
+  test_canonical_div_to_mul();
+  test_canonical_sort();
+
+  printf("\n[Symbol Table]\n");
+  test_symtab_set_get();
+  test_symtab_overwrite();
+  test_symtab_missing();
+  test_symtab_remove();
+  test_symtab_expr();
+
+  printf("\n[Matrix]\n");
+  test_matrix_create();
+  test_matrix_add();
+  test_matrix_mul();
+  test_matrix_det();
+  test_matrix_det_3x3();
+  test_matrix_inverse();
+  test_matrix_transpose();
+  test_matrix_identity();
+  test_matrix_trace();
+  test_matrix_to_string();
+  test_matrix_singular();
 
   printf("\n=== Results: %d/%d passed ===\n", tests_passed, tests_run);
   return tests_passed == tests_run ? 0 : 1;
