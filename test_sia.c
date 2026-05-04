@@ -1147,12 +1147,12 @@ static void test_parser_matrix_2x2(void) {
   ASSERT_TRUE(r.root != NULL);
   ASSERT_TRUE(r.error == NULL);
   ASSERT_EQ(r.root->type, AST_MATRIX);
-  ASSERT_EQ(r.root->as.matrix->rows, 2);
-  ASSERT_EQ(r.root->as.matrix->cols, 2);
-  ASSERT_NEAR(matrix_get(r.root->as.matrix, 0, 0), 1.0, 1e-9);
-  ASSERT_NEAR(matrix_get(r.root->as.matrix, 0, 1), 2.0, 1e-9);
-  ASSERT_NEAR(matrix_get(r.root->as.matrix, 1, 0), 3.0, 1e-9);
-  ASSERT_NEAR(matrix_get(r.root->as.matrix, 1, 1), 4.0, 1e-9);
+  ASSERT_EQ(r.root->as.matrix.rows, 2);
+  ASSERT_EQ(r.root->as.matrix.cols, 2);
+  ASSERT_TRUE(is_num_node(r.root->as.matrix.elements[0], 1.0));
+  ASSERT_TRUE(is_num_node(r.root->as.matrix.elements[1], 2.0));
+  ASSERT_TRUE(is_num_node(r.root->as.matrix.elements[2], 3.0));
+  ASSERT_TRUE(is_num_node(r.root->as.matrix.elements[3], 4.0));
   parse_result_free(&r);
   PASS();
 }
@@ -1163,8 +1163,36 @@ static void test_parser_matrix_1xN(void) {
   ASSERT_TRUE(r.root != NULL);
   ASSERT_TRUE(r.error == NULL);
   ASSERT_EQ(r.root->type, AST_MATRIX);
-  ASSERT_EQ(r.root->as.matrix->rows, 1);
-  ASSERT_EQ(r.root->as.matrix->cols, 3);
+  ASSERT_EQ(r.root->as.matrix.rows, 1);
+  ASSERT_EQ(r.root->as.matrix.cols, 3);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_parser_matrix_symbolic(void) {
+  TEST("parser: symbolic matrix [[sin(x), 1]]");
+  ParseResult r = parse("[[sin(x), 1]]");
+  ASSERT_TRUE(r.root != NULL);
+  ASSERT_TRUE(r.error == NULL);
+  ASSERT_EQ(r.root->type, AST_MATRIX);
+  ASSERT_EQ(r.root->as.matrix.rows, 1);
+  ASSERT_EQ(r.root->as.matrix.cols, 2);
+  ASSERT_EQ(r.root->as.matrix.elements[0]->type, AST_FUNC_CALL);
+  ASSERT_TRUE(is_num_node(r.root->as.matrix.elements[1], 1.0));
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_matrix(void) {
+  TEST("diff: d/dx([[x^2, x]]) = [[2*x, 1]]");
+  ParseResult r = parse("[[x^2, x]]");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  ASSERT_EQ(d->type, AST_MATRIX);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "[2*x, 1]");
+  free(s);
+  ast_free(d);
   parse_result_free(&r);
   PASS();
 }
@@ -1207,11 +1235,13 @@ int main(void) {
   test_parser_error();
   test_parser_matrix_2x2();
   test_parser_matrix_1xN();
+  test_parser_matrix_symbolic();
 
   printf("\n[AST]\n");
   test_ast_clone();
   test_ast_to_string();
   test_ast_matrix_clone();
+  test_diff_matrix();
 
   printf("\n[Eval]\n");
   test_eval_arithmetic();

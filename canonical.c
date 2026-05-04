@@ -58,8 +58,24 @@ static int node_compare(const AstNode *a, const AstNode *b) {
       return c;
     return node_compare(a->as.binop.right, b->as.binop.right);
   }
-  case AST_MATRIX:
+  case AST_MATRIX: {
+    size_t n = (a->as.matrix.rows < b->as.matrix.rows)   ? -1
+               : (a->as.matrix.rows > b->as.matrix.rows) ? 1
+                                                         : 0;
+    if (n)
+      return (int)n;
+    n = (a->as.matrix.cols < b->as.matrix.cols)   ? -1
+        : (a->as.matrix.cols > b->as.matrix.cols) ? 1
+                                                  : 0;
+    if (n)
+      return (int)n;
+    for (size_t i = 0; i < a->as.matrix.rows * a->as.matrix.cols; i++) {
+      int c = node_compare(a->as.matrix.elements[i], b->as.matrix.elements[i]);
+      if (c != 0)
+        return c;
+    }
     return 0;
+  }
   }
   return 0;
 }
@@ -84,8 +100,14 @@ AstNode *canonicalize(AstNode *node) {
   switch (node->type) {
   case AST_NUMBER:
   case AST_VARIABLE:
-  case AST_MATRIX:
     return node;
+
+  case AST_MATRIX: {
+    size_t total = node->as.matrix.rows * node->as.matrix.cols;
+    for (size_t i = 0; i < total; i++)
+      node->as.matrix.elements[i] = canonicalize(node->as.matrix.elements[i]);
+    return node;
+  }
 
   case AST_UNARY_NEG:
     node->as.unary.operand = canonicalize(node->as.unary.operand);

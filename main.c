@@ -1,6 +1,7 @@
 #include "ast.h"
 #include "canonical.h"
 #include "eval.h"
+#include "matrix.h"
 #include "parser.h"
 #include "symbolic.h"
 #include "symtab.h"
@@ -50,8 +51,15 @@ static AstNode *substitute_vars(AstNode *node, const SymTab *st) {
 
   switch (node->type) {
   case AST_NUMBER:
-  case AST_MATRIX:
     return node;
+
+  case AST_MATRIX: {
+    size_t total = node->as.matrix.rows * node->as.matrix.cols;
+    for (size_t i = 0; i < total; i++)
+      node->as.matrix.elements[i] =
+          substitute_vars(node->as.matrix.elements[i], st);
+    return node;
+  }
 
   case AST_VARIABLE: {
     /* scalar value first */
@@ -110,8 +118,22 @@ static Matrix *eval_matrix_expr(const AstNode *node) {
   if (!node)
     return NULL;
 
-  if (node->type == AST_MATRIX)
-    return matrix_clone(node->as.matrix);
+  if (node->type == AST_MATRIX) {
+    size_t rows = node->as.matrix.rows;
+    size_t cols = node->as.matrix.cols;
+    Matrix *m = matrix_create(rows, cols);
+    for (size_t i = 0; i < rows * cols; i++) {
+      EvalResult er = eval(node->as.matrix.elements[i], &global_symtab);
+      if (!er.ok) {
+        eval_result_free(&er);
+        matrix_free(m);
+        return NULL;
+      }
+      m->data[i] = er.value;
+      eval_result_free(&er);
+    }
+    return m;
+  }
 
   if (node->type == AST_UNARY_NEG) {
     Matrix *m = eval_matrix_expr(node->as.unary.operand);
@@ -351,17 +373,20 @@ static int process_input(const char *input, int batch_mode) {
 
   if (has_matrix(resolved)) {
     Matrix *m = eval_matrix_expr(resolved);
-    ast_free(resolved);
     if (m) {
       char *s = matrix_to_string(m);
       output_str(s, batch_mode);
       free(s);
       matrix_free(m);
     } else {
-      print_error("cannot evaluate matrix expression");
+      /* symbolic matrix: display as-is */
+      char *s = ast_to_string(resolved);
+      output_str(s, batch_mode);
+      free(s);
     }
+    ast_free(resolved);
     parse_result_free(&pr);
-    return m ? 0 : 1;
+    return 0;
   }
   ast_free(resolved);
 

@@ -31,8 +31,13 @@ static int contains_var(const AstNode *n, const char *var) {
       if (contains_var(n->as.call.args[i], var))
         return 1;
     return 0;
-  case AST_MATRIX:
+  case AST_MATRIX: {
+    size_t total = n->as.matrix.rows * n->as.matrix.cols;
+    for (size_t i = 0; i < total; i++)
+      if (contains_var(n->as.matrix.elements[i], var))
+        return 1;
     return 0;
+  }
   }
   return 0;
 }
@@ -66,13 +71,11 @@ static int ast_equal(const AstNode *a, const AstNode *b) {
         return 0;
     return 1;
   case AST_MATRIX:
-    if (!a->as.matrix || !b->as.matrix)
+    if (a->as.matrix.rows != b->as.matrix.rows ||
+        a->as.matrix.cols != b->as.matrix.cols)
       return 0;
-    if (a->as.matrix->rows != b->as.matrix->rows ||
-        a->as.matrix->cols != b->as.matrix->cols)
-      return 0;
-    for (size_t i = 0; i < a->as.matrix->rows * a->as.matrix->cols; i++)
-      if (a->as.matrix->data[i] != b->as.matrix->data[i])
+    for (size_t i = 0; i < a->as.matrix.rows * a->as.matrix.cols; i++)
+      if (!ast_equal(a->as.matrix.elements[i], b->as.matrix.elements[i]))
         return 0;
     return 1;
   }
@@ -86,8 +89,14 @@ AstNode *sym_simplify(AstNode *node) {
   switch (node->type) {
   case AST_NUMBER:
   case AST_VARIABLE:
-  case AST_MATRIX:
     return node;
+
+  case AST_MATRIX: {
+    size_t total = node->as.matrix.rows * node->as.matrix.cols;
+    for (size_t i = 0; i < total; i++)
+      node->as.matrix.elements[i] = sym_simplify(node->as.matrix.elements[i]);
+    return node;
+  }
 
   case AST_UNARY_NEG:
     node->as.unary.operand = sym_simplify(node->as.unary.operand);
@@ -384,8 +393,15 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
   case AST_NUMBER:
     return ast_number(0);
 
-  case AST_MATRIX:
-    return ast_number(0);
+  case AST_MATRIX: {
+    size_t total = expr->as.matrix.rows * expr->as.matrix.cols;
+    AstNode **elems = malloc(total * sizeof(AstNode *));
+    for (size_t i = 0; i < total; i++)
+      elems[i] = sym_diff(expr->as.matrix.elements[i], var);
+    AstNode *r = ast_matrix(elems, expr->as.matrix.rows, expr->as.matrix.cols);
+    free(elems);
+    return sym_simplify(r);
+  }
 
   case AST_VARIABLE:
     return ast_number(is_var(expr, var) ? 1.0 : 0.0);

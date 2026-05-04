@@ -40,7 +40,11 @@ struct AstNode {
       size_t nargs;
     } call;
 
-    Matrix *matrix;
+    struct {
+      AstNode **elements; /* row-major, size = rows * cols */
+      size_t rows;
+      size_t cols;
+    } matrix;
   } as;
 };
 
@@ -50,7 +54,7 @@ AstNode *ast_binop(BinOpKind op, AstNode *left, AstNode *right);
 AstNode *ast_unary_neg(AstNode *operand);
 AstNode *ast_func_call(const char *name, size_t namelen, AstNode **args,
                        size_t nargs);
-AstNode *ast_matrix(Matrix *m);
+AstNode *ast_matrix(AstNode **elements, size_t rows, size_t cols);
 
 AstNode *ast_clone(const AstNode *node);
 void ast_free(AstNode *node);

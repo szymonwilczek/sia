@@ -65,10 +65,14 @@ AstNode *ast_func_call(const char *name, size_t namelen, AstNode **args,
   return n;
 }
 
-AstNode *ast_matrix(Matrix *m) {
+AstNode *ast_matrix(AstNode **elements, size_t rows, size_t cols) {
   AstNode *n = xmalloc(sizeof *n);
   n->type = AST_MATRIX;
-  n->as.matrix = m;
+  n->as.matrix.rows = rows;
+  n->as.matrix.cols = cols;
+  size_t total = rows * cols;
+  n->as.matrix.elements = xmalloc(total * sizeof(AstNode *));
+  memcpy(n->as.matrix.elements, elements, total * sizeof(AstNode *));
   return n;
 }
 
@@ -101,8 +105,15 @@ AstNode *ast_clone(const AstNode *node) {
     free(args);
     return r;
   }
-  case AST_MATRIX:
-    return ast_matrix(matrix_clone(node->as.matrix));
+  case AST_MATRIX: {
+    size_t total = node->as.matrix.rows * node->as.matrix.cols;
+    AstNode **elems = xmalloc(total * sizeof(AstNode *));
+    for (size_t i = 0; i < total; i++)
+      elems[i] = ast_clone(node->as.matrix.elements[i]);
+    AstNode *r = ast_matrix(elems, node->as.matrix.rows, node->as.matrix.cols);
+    free(elems);
+    return r;
+  }
   }
   return NULL;
 }
@@ -130,9 +141,13 @@ void ast_free(AstNode *node) {
     free(node->as.call.args);
     free(node->as.call.name);
     break;
-  case AST_MATRIX:
-    matrix_free(node->as.matrix);
+  case AST_MATRIX: {
+    size_t total = node->as.matrix.rows * node->as.matrix.cols;
+    for (size_t i = 0; i < total; i++)
+      ast_free(node->as.matrix.elements[i]);
+    free(node->as.matrix.elements);
     break;
+  }
   }
   free(node);
 }
@@ -249,9 +264,18 @@ static void ast_serialize(const AstNode *node, StrBuf *sb,
     sb_append(sb, ")", 1);
     break;
   case AST_MATRIX: {
-    char *ms = matrix_to_string(node->as.matrix);
-    sb_append(sb, ms, strlen(ms));
-    free(ms);
+    sb_append(sb, "[", 1);
+    for (size_t r = 0; r < node->as.matrix.rows; r++) {
+      if (r > 0)
+        sb_append(sb, "; ", 2);
+      for (size_t c = 0; c < node->as.matrix.cols; c++) {
+        if (c > 0)
+          sb_append(sb, ", ", 2);
+        size_t idx = r * node->as.matrix.cols + c;
+        ast_serialize(node->as.matrix.elements[idx], sb, NULL, 0);
+      }
+    }
+    sb_append(sb, "]", 1);
     break;
   }
   }
