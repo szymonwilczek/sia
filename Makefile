@@ -6,13 +6,15 @@ CFLAGS  := -std=c11 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
 LDFLAGS :=
 LDLIBS  := -lm
 
-SRC     := lexer.c ast.c parser.c eval.c symbolic.c main.c
+SRC     := lexer.c ast.c parser.c eval.c symbolic.c canonical.c \
+           symtab.c matrix.c main.c
 OBJ     := $(SRC:.c=.o)
 DEP     := $(SRC:.c=.d)
 BIN     := sia
 
-TEST_SRC := test_sia.c lexer.c ast.c parser.c eval.c symbolic.c
-TEST_OBJ := $(TEST_SRC:.c=.o)
+CORE    := lexer.c ast.c parser.c eval.c symbolic.c canonical.c \
+           symtab.c matrix.c
+TEST_SRC := test_sia.c $(CORE)
 TEST_BIN := test_sia
 
 .PHONY: all clean test valgrind
@@ -35,6 +37,6 @@ valgrind: $(TEST_BIN)
 	valgrind --leak-check=full --error-exitcode=1 ./$(TEST_BIN)
 
 clean:
-	rm -f $(OBJ) $(DEP) $(BIN) $(TEST_BIN) $(TEST_OBJ)
+	rm -f $(OBJ) $(DEP) $(BIN) $(TEST_BIN) *.o
 
 -include $(DEP)
