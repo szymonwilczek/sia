@@ -43,12 +43,22 @@ static EvalResult eval_call(const char *name, double *args, size_t nargs) {
       return ok(floor(a));
     if (strcmp(name, "round") == 0)
       return ok(round(a));
+    if (strcmp(name, "sinh") == 0)
+      return ok(sinh(a));
+    if (strcmp(name, "cosh") == 0)
+      return ok(cosh(a));
+    if (strcmp(name, "tanh") == 0)
+      return ok(tanh(a));
   }
   if (nargs == 2) {
     if (strcmp(name, "atan2") == 0)
       return ok(atan2(args[0], args[1]));
     if (strcmp(name, "pow") == 0)
       return ok(pow(args[0], args[1]));
+    if (strcmp(name, "min") == 0)
+      return ok(fmin(args[0], args[1]));
+    if (strcmp(name, "max") == 0)
+      return ok(fmax(args[0], args[1]));
   }
 
   char buf[128];
@@ -56,7 +66,7 @@ static EvalResult eval_call(const char *name, double *args, size_t nargs) {
   return fail(buf);
 }
 
-EvalResult eval(const AstNode *node) {
+EvalResult eval(const AstNode *node, const SymTab *st) {
   if (!node)
     return fail("null expression");
 
@@ -69,16 +79,23 @@ EvalResult eval(const AstNode *node) {
       return ok(M_PI);
     if (strcmp(node->as.variable, "e") == 0)
       return ok(M_E);
+
+    if (st) {
+      double val;
+      if (symtab_get(st, node->as.variable, &val))
+        return ok(val);
+    }
+
     char buf[128];
     snprintf(buf, sizeof buf, "undefined variable: %s", node->as.variable);
     return fail(buf);
   }
 
   case AST_BINOP: {
-    EvalResult l = eval(node->as.binop.left);
+    EvalResult l = eval(node->as.binop.left, st);
     if (!l.ok)
       return l;
-    EvalResult r = eval(node->as.binop.right);
+    EvalResult r = eval(node->as.binop.right, st);
     if (!r.ok) {
       eval_result_free(&l);
       return r;
@@ -102,7 +119,7 @@ EvalResult eval(const AstNode *node) {
   }
 
   case AST_UNARY_NEG: {
-    EvalResult r = eval(node->as.unary.operand);
+    EvalResult r = eval(node->as.unary.operand, st);
     if (!r.ok)
       return r;
     return ok(-r.value);
@@ -111,7 +128,7 @@ EvalResult eval(const AstNode *node) {
   case AST_FUNC_CALL: {
     double args[16];
     for (size_t i = 0; i < node->as.call.nargs; i++) {
-      EvalResult a = eval(node->as.call.args[i]);
+      EvalResult a = eval(node->as.call.args[i], st);
       if (!a.ok)
         return a;
       args[i] = a.value;

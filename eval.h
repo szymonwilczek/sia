@@ -2,6 +2,7 @@
 #define SIA_EVAL_H
 
 #include "ast.h"
+#include "symtab.h"
 
 typedef struct {
   double value;
@@ -9,7 +10,7 @@ typedef struct {
   char *error;
 } EvalResult;
 
-EvalResult eval(const AstNode *node);
+EvalResult eval(const AstNode *node, const SymTab *st);
 void eval_result_free(EvalResult *r);
 
 #endif
