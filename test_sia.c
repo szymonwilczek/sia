@@ -802,6 +802,39 @@ static void test_integrate_1_over_x(void) {
   PASS();
 }
 
+static void test_integrate_1_div_x(void) {
+  TEST("int: integral(1/x, x) via canonicalize = ln(x)");
+  ParseResult r = parse("1/x");
+  AstNode *expr = canonicalize(ast_clone(r.root));
+  expr = sym_simplify(expr);
+  AstNode *result = sym_integrate(expr, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_STR_EQ(s, "ln(x)");
+  free(s);
+  ast_free(expr);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_x_div_x(void) {
+  TEST("int: integral(x/x, x) via canonicalize = x");
+  ParseResult r = parse("x/x");
+  AstNode *expr = canonicalize(ast_clone(r.root));
+  expr = sym_simplify(expr);
+  AstNode *result = sym_integrate(expr, "x");
+  ASSERT_TRUE(result != NULL);
+  result = sym_simplify(result);
+  char *s = ast_to_string(result);
+  ASSERT_STR_EQ(s, "x");
+  free(s);
+  ast_free(expr);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
 /* Canonical Form */
 
 static void test_canonical_sub_to_add(void) {
@@ -1232,6 +1265,8 @@ int main(void) {
   test_integrate_cos();
   test_integrate_exp();
   test_integrate_1_over_x();
+  test_integrate_1_div_x();
+  test_integrate_x_div_x();
 
   printf("\n[Canonical Form]\n");
   test_canonical_sub_to_add();

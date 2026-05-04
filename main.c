@@ -1,4 +1,5 @@
 #include "ast.h"
+#include "canonical.h"
 #include "eval.h"
 #include "parser.h"
 #include "symbolic.h"
@@ -303,9 +304,11 @@ static int process_input(const char *input, int batch_mode) {
         pr.root->as.call.nargs == 2 &&
         pr.root->as.call.args[1]->type == AST_VARIABLE) {
 
-      /* substitute known variables before integration */
+      /* substitute known variables and canonicalize before integration */
       AstNode *expr =
           substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
+      expr = canonicalize(expr);
+      expr = sym_simplify(expr);
       AstNode *result =
           sym_integrate(expr, pr.root->as.call.args[1]->as.variable);
       ast_free(expr);
