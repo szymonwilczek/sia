@@ -388,6 +388,34 @@ static void test_eval_hyperbolic(void) {
   PASS();
 }
 
+static void test_eval_domain_errors(void) {
+  TEST("eval: domain errors for ln, sqrt, log, asin");
+  ParseResult r1 = parse("ln(-1)");
+  EvalResult e1 = eval(r1.root, NULL);
+  ASSERT_TRUE(!e1.ok);
+  eval_result_free(&e1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("sqrt(-1)");
+  EvalResult e2 = eval(r2.root, NULL);
+  ASSERT_TRUE(!e2.ok);
+  eval_result_free(&e2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("log(0)");
+  EvalResult e3 = eval(r3.root, NULL);
+  ASSERT_TRUE(!e3.ok);
+  eval_result_free(&e3);
+  parse_result_free(&r3);
+
+  ParseResult r4 = parse("asin(2)");
+  EvalResult e4 = eval(r4.root, NULL);
+  ASSERT_TRUE(!e4.ok);
+  eval_result_free(&e4);
+  parse_result_free(&r4);
+  PASS();
+}
+
 /* Symbolic */
 
 static void test_simplify_zero_mul(void) {
@@ -1255,6 +1283,7 @@ int main(void) {
   test_eval_nested_func();
   test_eval_symtab();
   test_eval_hyperbolic();
+  test_eval_domain_errors();
 
   printf("\n[Symbolic - Simplify]\n");
   test_simplify_zero_mul();

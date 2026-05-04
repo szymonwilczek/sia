@@ -21,22 +21,37 @@ static EvalResult eval_call(const char *name, double *args, size_t nargs) {
       return ok(cos(a));
     if (strcmp(name, "tan") == 0)
       return ok(tan(a));
-    if (strcmp(name, "asin") == 0)
+    if (strcmp(name, "asin") == 0) {
+      if (a < -1.0 || a > 1.0)
+        return fail("domain error: asin argument out of [-1, 1]");
       return ok(asin(a));
-    if (strcmp(name, "acos") == 0)
+    }
+    if (strcmp(name, "acos") == 0) {
+      if (a < -1.0 || a > 1.0)
+        return fail("domain error: acos argument out of [-1, 1]");
       return ok(acos(a));
+    }
     if (strcmp(name, "atan") == 0)
       return ok(atan(a));
-    if (strcmp(name, "sqrt") == 0)
+    if (strcmp(name, "sqrt") == 0) {
+      if (a < 0.0)
+        return fail("domain error: sqrt of negative number");
       return ok(sqrt(a));
+    }
     if (strcmp(name, "abs") == 0)
       return ok(fabs(a));
     if (strcmp(name, "exp") == 0)
       return ok(exp(a));
-    if (strcmp(name, "log") == 0)
+    if (strcmp(name, "log") == 0) {
+      if (a <= 0.0)
+        return fail("domain error: log of non-positive number");
       return ok(log10(a));
-    if (strcmp(name, "ln") == 0)
+    }
+    if (strcmp(name, "ln") == 0) {
+      if (a <= 0.0)
+        return fail("domain error: ln of non-positive number");
       return ok(log(a));
+    }
     if (strcmp(name, "ceil") == 0)
       return ok(ceil(a));
     if (strcmp(name, "floor") == 0)
