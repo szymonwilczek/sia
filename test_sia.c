@@ -570,6 +570,39 @@ static void test_simplify_cancel_div(void) {
   PASS();
 }
 
+static void test_simplify_trig_tan(void) {
+  TEST("simplify: sin(x)/cos(x) -> tan(x)");
+  ParseResult r = parse("sin(x)/cos(x)");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "tan(x)");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_simplify_trig_pythagorean(void) {
+  TEST("simplify: sin(x)^2 + cos(x)^2 -> 1");
+  ParseResult r = parse("sin(x)^2 + cos(x)^2");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  ASSERT_TRUE(is_num_node(s, 1));
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_simplify_exp_ln(void) {
+  TEST("simplify: exp(ln(x)) -> x");
+  ParseResult r = parse("exp(ln(x))");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  ASSERT_EQ(s->type, AST_VARIABLE);
+  ASSERT_STR_EQ(s->as.variable, "x");
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
 /* Differentiation */
 
 static void test_diff_constant(void) {
@@ -1300,6 +1333,9 @@ int main(void) {
   test_simplify_coeff_merge();
   test_simplify_mul_reciprocal();
   test_simplify_cancel_div();
+  test_simplify_trig_tan();
+  test_simplify_trig_pythagorean();
+  test_simplify_exp_ln();
 
   printf("\n[Symbolic - Differentiation]\n");
   test_diff_constant();

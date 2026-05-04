@@ -13,6 +13,18 @@ static int is_var(const AstNode *n, const char *var) {
   return n && n->type == AST_VARIABLE && strcmp(n->as.variable, var) == 0;
 }
 
+/* check if n is func(arg) with given name and 1 argument */
+static int is_call1(const AstNode *n, const char *name) {
+  return n && n->type == AST_FUNC_CALL && n->as.call.nargs == 1 &&
+         strcmp(n->as.call.name, name) == 0;
+}
+
+/* check if n is f(u)^2 for a given function name f */
+static int is_call1_squared(const AstNode *n, const char *fname) {
+  return n && n->type == AST_BINOP && n->as.binop.op == OP_POW &&
+         is_number(n->as.binop.right, 2) && is_call1(n->as.binop.left, fname);
+}
+
 static int contains_var(const AstNode *n, const char *var) {
   if (!n)
     return 0;
@@ -117,6 +129,18 @@ AstNode *sym_simplify(AstNode *node) {
   case AST_FUNC_CALL:
     for (size_t i = 0; i < node->as.call.nargs; i++)
       node->as.call.args[i] = sym_simplify(node->as.call.args[i]);
+    /* exp(ln(x)) -> x */
+    if (is_call1(node, "exp") && is_call1(node->as.call.args[0], "ln")) {
+      AstNode *inner = ast_clone(node->as.call.args[0]->as.call.args[0]);
+      ast_free(node);
+      return inner;
+    }
+    /* ln(exp(x)) -> x */
+    if (is_call1(node, "ln") && is_call1(node->as.call.args[0], "exp")) {
+      AstNode *inner = ast_clone(node->as.call.args[0]->as.call.args[0]);
+      ast_free(node);
+      return inner;
+    }
     return node;
 
   case AST_BINOP:
@@ -205,6 +229,19 @@ AstNode *sym_simplify(AstNode *node) {
       ast_free(node);
       return sym_simplify(ast_binop(OP_MUL, ast_number(c), base));
     }
+    /* sin(u)^2 + cos(u)^2 -> 1 */
+    if (is_call1_squared(L, "sin") && is_call1_squared(R, "cos") &&
+        ast_equal(L->as.binop.left->as.call.args[0],
+                  R->as.binop.left->as.call.args[0])) {
+      ast_free(node);
+      return ast_number(1);
+    }
+    if (is_call1_squared(L, "cos") && is_call1_squared(R, "sin") &&
+        ast_equal(L->as.binop.left->as.call.args[0],
+                  R->as.binop.left->as.call.args[0])) {
+      ast_free(node);
+      return ast_number(1);
+    }
     break;
 
   case OP_SUB:
@@ -222,6 +259,19 @@ AstNode *sym_simplify(AstNode *node) {
     if (ast_equal(L, R)) {
       ast_free(node);
       return ast_number(0);
+    }
+    /* sin(u)^2 + cos(u)^2 -> 1 */
+    if (is_call1_squared(L, "sin") && is_call1_squared(R, "cos") &&
+        ast_equal(L->as.binop.left->as.call.args[0],
+                  R->as.binop.left->as.call.args[0])) {
+      ast_free(node);
+      return ast_number(1);
+    }
+    if (is_call1_squared(L, "cos") && is_call1_squared(R, "sin") &&
+        ast_equal(L->as.binop.left->as.call.args[0],
+                  R->as.binop.left->as.call.args[0])) {
+      ast_free(node);
+      return ast_number(1);
     }
     break;
 
@@ -350,6 +400,23 @@ AstNode *sym_simplify(AstNode *node) {
       AstNode *base = ast_clone(L->as.binop.right);
       ast_free(node);
       return sym_simplify(ast_binop(OP_MUL, ast_number(c), base));
+    }
+    /* sin(u) / cos(u) -> tan(u) */
+    if (is_call1(L, "sin") && is_call1(R, "cos") &&
+        ast_equal(L->as.call.args[0], R->as.call.args[0])) {
+      AstNode *arg = ast_clone(L->as.call.args[0]);
+      ast_free(node);
+      AstNode *args[] = {arg};
+      return ast_func_call("tan", 3, args, 1);
+    }
+    /* cos(u) / sin(u) -> 1/tan(u) */
+    if (is_call1(L, "cos") && is_call1(R, "sin") &&
+        ast_equal(L->as.call.args[0], R->as.call.args[0])) {
+      AstNode *arg = ast_clone(L->as.call.args[0]);
+      ast_free(node);
+      AstNode *args[] = {arg};
+      AstNode *t = ast_func_call("tan", 3, args, 1);
+      return ast_binop(OP_DIV, ast_number(1), t);
     }
     break;
 
