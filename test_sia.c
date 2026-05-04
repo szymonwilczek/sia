@@ -603,6 +603,18 @@ static void test_simplify_exp_ln(void) {
   PASS();
 }
 
+static void test_simplify_distributive(void) {
+  TEST("simplify: (x^3 + x^2) * x^(-2) -> x + 1");
+  ParseResult r = parse("(x^3 + x^2) * x^(-2)");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "x + 1");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
 /* Differentiation */
 
 static void test_diff_constant(void) {
@@ -719,12 +731,12 @@ static void test_diff_chain_sin_x2(void) {
 }
 
 static void test_diff_x_to_x(void) {
-  TEST("diff: d/dx(x^x) = x^x*(ln(x) + 1)");
+  TEST("diff: d/dx(x^x) = x^x*ln(x) + x^x");
   ParseResult r = parse("x^x");
   AstNode *d = sym_diff(r.root, "x");
   ASSERT_TRUE(d != NULL);
   char *s = ast_to_string(d);
-  ASSERT_STR_EQ(s, "x^x*(ln(x) + 1)");
+  ASSERT_STR_EQ(s, "x^x*ln(x) + x^x");
   free(s);
   ast_free(d);
   parse_result_free(&r);
@@ -889,6 +901,23 @@ static void test_integrate_x_div_x(void) {
   result = sym_simplify(result);
   char *s = ast_to_string(result);
   ASSERT_STR_EQ(s, "x");
+  free(s);
+  ast_free(expr);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_rational(void) {
+  TEST("int: integral((x^3 + x^2) / x^2, x) via canonicalize");
+  ParseResult r = parse("(x^3 + x^2) / x^2");
+  AstNode *expr = canonicalize(ast_clone(r.root));
+  expr = sym_simplify(expr);
+  AstNode *result = sym_integrate(expr, "x");
+  ASSERT_TRUE(result != NULL);
+  result = sym_simplify(result);
+  char *s = ast_to_string(result);
+  ASSERT_TRUE(strcmp(s, "x + x^2/2") == 0 || strcmp(s, "x^2/2 + x") == 0);
   free(s);
   ast_free(expr);
   ast_free(result);
@@ -1336,6 +1365,7 @@ int main(void) {
   test_simplify_trig_tan();
   test_simplify_trig_pythagorean();
   test_simplify_exp_ln();
+  test_simplify_distributive();
 
   printf("\n[Symbolic - Differentiation]\n");
   test_diff_constant();
@@ -1362,6 +1392,7 @@ int main(void) {
   test_integrate_1_over_x();
   test_integrate_1_div_x();
   test_integrate_x_div_x();
+  test_integrate_rational();
 
   printf("\n[Canonical Form]\n");
   test_canonical_sub_to_add();

@@ -369,6 +369,46 @@ AstNode *sym_simplify(AstNode *node) {
       ast_free(node);
       return sym_simplify(a);
     }
+    /* (A + B) * C -> A*C + B*C */
+    if (L->type == AST_BINOP && L->as.binop.op == OP_ADD) {
+      AstNode *a = ast_clone(L->as.binop.left);
+      AstNode *b = ast_clone(L->as.binop.right);
+      AstNode *c1 = ast_clone(R);
+      AstNode *c2 = ast_clone(R);
+      ast_free(node);
+      return sym_simplify(ast_binop(OP_ADD, ast_binop(OP_MUL, a, c1),
+                                    ast_binop(OP_MUL, b, c2)));
+    }
+    /* C * (A + B) -> C*A + C*B */
+    if (R->type == AST_BINOP && R->as.binop.op == OP_ADD) {
+      AstNode *a = ast_clone(R->as.binop.left);
+      AstNode *b = ast_clone(R->as.binop.right);
+      AstNode *c1 = ast_clone(L);
+      AstNode *c2 = ast_clone(L);
+      ast_free(node);
+      return sym_simplify(ast_binop(OP_ADD, ast_binop(OP_MUL, c1, a),
+                                    ast_binop(OP_MUL, c2, b)));
+    }
+    /* (A - B) * C -> A*C - B*C */
+    if (L->type == AST_BINOP && L->as.binop.op == OP_SUB) {
+      AstNode *a = ast_clone(L->as.binop.left);
+      AstNode *b = ast_clone(L->as.binop.right);
+      AstNode *c1 = ast_clone(R);
+      AstNode *c2 = ast_clone(R);
+      ast_free(node);
+      return sym_simplify(ast_binop(OP_SUB, ast_binop(OP_MUL, a, c1),
+                                    ast_binop(OP_MUL, b, c2)));
+    }
+    /* C * (A - B) -> C*A - C*B */
+    if (R->type == AST_BINOP && R->as.binop.op == OP_SUB) {
+      AstNode *a = ast_clone(R->as.binop.left);
+      AstNode *b = ast_clone(R->as.binop.right);
+      AstNode *c1 = ast_clone(L);
+      AstNode *c2 = ast_clone(L);
+      ast_free(node);
+      return sym_simplify(ast_binop(OP_SUB, ast_binop(OP_MUL, c1, a),
+                                    ast_binop(OP_MUL, c2, b)));
+    }
     break;
 
   case OP_DIV:
