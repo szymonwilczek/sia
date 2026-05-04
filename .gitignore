@@ -1,0 +1,7 @@
+# Build artifacts
+sia
+test_sia
+*.o
+*.d
+
+# linenoise
