@@ -521,6 +521,27 @@ static void test_simplify_coeff_merge(void) {
   PASS();
 }
 
+static void test_simplify_mul_reciprocal(void) {
+  TEST("simplify: x * (1/x) -> 1");
+  ParseResult r = parse("x * (1/x)");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  ASSERT_TRUE(is_num_node(s, 1));
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_simplify_cancel_div(void) {
+  TEST("simplify: x * (y/x) -> y");
+  ParseResult r = parse("x * (y/x)");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  ASSERT_EQ(s->type, AST_VARIABLE);
+  ASSERT_STR_EQ(s->as.variable, "y");
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
 /* Differentiation */
 
 static void test_diff_constant(void) {
@@ -637,11 +658,13 @@ static void test_diff_chain_sin_x2(void) {
 }
 
 static void test_diff_x_to_x(void) {
-  TEST("diff: d/dx(x^x) via f^g formula");
+  TEST("diff: d/dx(x^x) = x^x*(ln(x) + 1)");
   ParseResult r = parse("x^x");
   AstNode *d = sym_diff(r.root, "x");
   ASSERT_TRUE(d != NULL);
-  /* x^x * (1*ln(x) + x*1/x) should simplify to x^x * (ln(x) + 1) */
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "x^x*(ln(x) + 1)");
+  free(s);
   ast_free(d);
   parse_result_free(&r);
   PASS();
@@ -1183,6 +1206,8 @@ int main(void) {
   test_simplify_double_neg();
   test_simplify_mul_neg_one();
   test_simplify_coeff_merge();
+  test_simplify_mul_reciprocal();
+  test_simplify_cancel_div();
 
   printf("\n[Symbolic - Differentiation]\n");
   test_diff_constant();

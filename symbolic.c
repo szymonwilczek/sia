@@ -284,6 +284,32 @@ AstNode *sym_simplify(AstNode *node) {
       ast_free(node);
       return sym_simplify(ast_binop(OP_POW, base, sym_simplify(exp)));
     }
+    /* A * (1/A) -> 1 */
+    if (R->type == AST_BINOP && R->as.binop.op == OP_DIV &&
+        is_number(R->as.binop.left, 1) && ast_equal(L, R->as.binop.right)) {
+      ast_free(node);
+      return ast_number(1);
+    }
+    /* (1/A) * A -> 1 */
+    if (L->type == AST_BINOP && L->as.binop.op == OP_DIV &&
+        is_number(L->as.binop.left, 1) && ast_equal(L->as.binop.right, R)) {
+      ast_free(node);
+      return ast_number(1);
+    }
+    /* A * (B/A) -> B */
+    if (R->type == AST_BINOP && R->as.binop.op == OP_DIV &&
+        ast_equal(L, R->as.binop.right)) {
+      AstNode *b = ast_clone(R->as.binop.left);
+      ast_free(node);
+      return sym_simplify(b);
+    }
+    /* (A/B) * B -> A */
+    if (L->type == AST_BINOP && L->as.binop.op == OP_DIV &&
+        ast_equal(L->as.binop.right, R)) {
+      AstNode *a = ast_clone(L->as.binop.left);
+      ast_free(node);
+      return sym_simplify(a);
+    }
     break;
 
   case OP_DIV:
