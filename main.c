@@ -280,8 +280,11 @@ static int process_input(const char *input, int batch_mode) {
         pr.root->as.call.nargs == 2 &&
         pr.root->as.call.args[1]->type == AST_VARIABLE) {
 
-      AstNode *result = sym_diff(pr.root->as.call.args[0],
-                                 pr.root->as.call.args[1]->as.variable);
+      /* substitute known variables before differentiation */
+      AstNode *expr =
+          substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
+      AstNode *result = sym_diff(expr, pr.root->as.call.args[1]->as.variable);
+      ast_free(expr);
       if (result) {
         result = sym_simplify(result);
         char *s = ast_to_string(result);
@@ -300,8 +303,12 @@ static int process_input(const char *input, int batch_mode) {
         pr.root->as.call.nargs == 2 &&
         pr.root->as.call.args[1]->type == AST_VARIABLE) {
 
-      AstNode *result = sym_integrate(pr.root->as.call.args[0],
-                                      pr.root->as.call.args[1]->as.variable);
+      /* substitute known variables before integration */
+      AstNode *expr =
+          substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
+      AstNode *result =
+          sym_integrate(expr, pr.root->as.call.args[1]->as.variable);
+      ast_free(expr);
       if (result) {
         result = sym_simplify(result);
         char *s = ast_to_string(result);
@@ -323,7 +330,10 @@ static int process_input(const char *input, int batch_mode) {
     if (strcmp(pr.root->as.call.name, "simplify") == 0 &&
         pr.root->as.call.nargs == 1) {
 
-      AstNode *simplified = sym_simplify(ast_clone(pr.root->as.call.args[0]));
+      /* substitute known variables before simplification */
+      AstNode *expr =
+          substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
+      AstNode *simplified = sym_simplify(expr);
       char *s = ast_to_string(simplified);
       output_str(s, batch_mode);
       free(s);
