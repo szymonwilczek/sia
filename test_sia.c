@@ -1064,6 +1064,70 @@ static void test_matrix_singular(void) {
   PASS();
 }
 
+static void test_lexer_brackets(void) {
+  TEST("lexer: bracket tokens [ and ]");
+  Lexer lex;
+  lexer_init(&lex, "[[1,2],[3,4]]");
+  Token t = lexer_next(&lex);
+  ASSERT_EQ(t.type, TOK_LBRACKET);
+  t = lexer_next(&lex);
+  ASSERT_EQ(t.type, TOK_LBRACKET);
+  t = lexer_next(&lex);
+  ASSERT_EQ(t.type, TOK_NUMBER);
+  ASSERT_NEAR(t.numval, 1.0, 1e-9);
+  t = lexer_next(&lex);
+  ASSERT_EQ(t.type, TOK_COMMA);
+  t = lexer_next(&lex);
+  ASSERT_EQ(t.type, TOK_NUMBER);
+  ASSERT_NEAR(t.numval, 2.0, 1e-9);
+  t = lexer_next(&lex);
+  ASSERT_EQ(t.type, TOK_RBRACKET);
+  PASS();
+}
+
+static void test_parser_matrix_2x2(void) {
+  TEST("parser: matrix literal [[1,2],[3,4]]");
+  ParseResult r = parse("[[1,2],[3,4]]");
+  ASSERT_TRUE(r.root != NULL);
+  ASSERT_TRUE(r.error == NULL);
+  ASSERT_EQ(r.root->type, AST_MATRIX);
+  ASSERT_EQ(r.root->as.matrix->rows, 2);
+  ASSERT_EQ(r.root->as.matrix->cols, 2);
+  ASSERT_NEAR(matrix_get(r.root->as.matrix, 0, 0), 1.0, 1e-9);
+  ASSERT_NEAR(matrix_get(r.root->as.matrix, 0, 1), 2.0, 1e-9);
+  ASSERT_NEAR(matrix_get(r.root->as.matrix, 1, 0), 3.0, 1e-9);
+  ASSERT_NEAR(matrix_get(r.root->as.matrix, 1, 1), 4.0, 1e-9);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_parser_matrix_1xN(void) {
+  TEST("parser: row matrix [[1,2,3]]");
+  ParseResult r = parse("[[1,2,3]]");
+  ASSERT_TRUE(r.root != NULL);
+  ASSERT_TRUE(r.error == NULL);
+  ASSERT_EQ(r.root->type, AST_MATRIX);
+  ASSERT_EQ(r.root->as.matrix->rows, 1);
+  ASSERT_EQ(r.root->as.matrix->cols, 3);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_ast_matrix_clone(void) {
+  TEST("ast: matrix clone round-trip");
+  ParseResult r = parse("[[1,2],[3,4]]");
+  ASSERT_TRUE(r.root != NULL);
+  AstNode *clone = ast_clone(r.root);
+  char *s1 = ast_to_string(r.root);
+  char *s2 = ast_to_string(clone);
+  ASSERT_STR_EQ(s1, s2);
+  free(s1);
+  free(s2);
+  ast_free(clone);
+  parse_result_free(&r);
+  PASS();
+}
+
 /* Main */
 
 int main(void) {
@@ -1075,6 +1139,7 @@ int main(void) {
   test_lexer_identifiers();
   test_lexer_operators();
   test_lexer_error();
+  test_lexer_brackets();
 
   printf("\n[Parser]\n");
   test_parser_number();
@@ -1084,10 +1149,13 @@ int main(void) {
   test_parser_nested();
   test_parser_unary_neg();
   test_parser_error();
+  test_parser_matrix_2x2();
+  test_parser_matrix_1xN();
 
   printf("\n[AST]\n");
   test_ast_clone();
   test_ast_to_string();
+  test_ast_matrix_clone();
 
   printf("\n[Eval]\n");
   test_eval_arithmetic();

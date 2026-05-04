@@ -135,6 +135,8 @@ EvalResult eval(const AstNode *node, const SymTab *st) {
     }
     return eval_call(node->as.call.name, args, node->as.call.nargs);
   }
+  case AST_MATRIX:
+    return fail("cannot evaluate matrix as scalar");
   }
 
   return fail("unknown node type");

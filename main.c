@@ -42,6 +42,155 @@ static void output_str(const char *s, int batch_mode) {
   }
 }
 
+/* replace variables in an AST with their stored values/expressions */
+static AstNode *substitute_vars(AstNode *node, const SymTab *st) {
+  if (!node)
+    return NULL;
+
+  switch (node->type) {
+  case AST_NUMBER:
+  case AST_MATRIX:
+    return node;
+
+  case AST_VARIABLE: {
+    /* scalar value first */
+    double val;
+    if (symtab_get(st, node->as.variable, &val)) {
+      ast_free(node);
+      return ast_number(val);
+    }
+    /* stored expression (eg: matrix) */
+    AstNode *expr = symtab_get_expr(st, node->as.variable);
+    if (expr) {
+      AstNode *clone = ast_clone(expr);
+      ast_free(node);
+      return clone;
+    }
+    return node;
+  }
+
+  case AST_BINOP:
+    node->as.binop.left = substitute_vars(node->as.binop.left, st);
+    node->as.binop.right = substitute_vars(node->as.binop.right, st);
+    return node;
+
+  case AST_UNARY_NEG:
+    node->as.unary.operand = substitute_vars(node->as.unary.operand, st);
+    return node;
+
+  case AST_FUNC_CALL:
+    for (size_t i = 0; i < node->as.call.nargs; i++)
+      node->as.call.args[i] = substitute_vars(node->as.call.args[i], st);
+    return node;
+  }
+  return node;
+}
+
+static int has_matrix(const AstNode *node) {
+  if (!node)
+    return 0;
+  if (node->type == AST_MATRIX)
+    return 1;
+  if (node->type == AST_BINOP)
+    return has_matrix(node->as.binop.left) || has_matrix(node->as.binop.right);
+  if (node->type == AST_UNARY_NEG)
+    return has_matrix(node->as.unary.operand);
+  if (node->type == AST_FUNC_CALL)
+    for (size_t i = 0; i < node->as.call.nargs; i++)
+      if (has_matrix(node->as.call.args[i]))
+        return 1;
+  return 0;
+}
+
+/* Evaluate an AST that may contain matrix nodes.
+ * Returns a new Matrix on success, or NULL on failure.
+ * Supports +, -, *, scalar scaling, and unary negation. */
+static Matrix *eval_matrix_expr(const AstNode *node) {
+  if (!node)
+    return NULL;
+
+  if (node->type == AST_MATRIX)
+    return matrix_clone(node->as.matrix);
+
+  if (node->type == AST_UNARY_NEG) {
+    Matrix *m = eval_matrix_expr(node->as.unary.operand);
+    if (!m)
+      return NULL;
+    Matrix *r = matrix_scale(m, -1.0);
+    matrix_free(m);
+    return r;
+  }
+
+  if (node->type != AST_BINOP)
+    return NULL;
+
+  const AstNode *L = node->as.binop.left;
+  const AstNode *R = node->as.binop.right;
+
+  switch (node->as.binop.op) {
+  case OP_ADD: {
+    Matrix *ml = eval_matrix_expr(L);
+    Matrix *mr = eval_matrix_expr(R);
+    if (!ml || !mr) {
+      matrix_free(ml);
+      matrix_free(mr);
+      return NULL;
+    }
+    Matrix *r = matrix_add(ml, mr);
+    matrix_free(ml);
+    matrix_free(mr);
+    return r;
+  }
+  case OP_SUB: {
+    Matrix *ml = eval_matrix_expr(L);
+    Matrix *mr = eval_matrix_expr(R);
+    if (!ml || !mr) {
+      matrix_free(ml);
+      matrix_free(mr);
+      return NULL;
+    }
+    Matrix *r = matrix_sub(ml, mr);
+    matrix_free(ml);
+    matrix_free(mr);
+    return r;
+  }
+  case OP_MUL: {
+    /* scalar * matrix */
+    if (L->type == AST_NUMBER && has_matrix(R)) {
+      Matrix *mr = eval_matrix_expr(R);
+      if (!mr)
+        return NULL;
+      Matrix *r = matrix_scale(mr, L->as.number);
+      matrix_free(mr);
+      return r;
+    }
+    /* matrix * scalar */
+    if (R->type == AST_NUMBER && has_matrix(L)) {
+      Matrix *ml = eval_matrix_expr(L);
+      if (!ml)
+        return NULL;
+      Matrix *r = matrix_scale(ml, R->as.number);
+      matrix_free(ml);
+      return r;
+    }
+    /* matrix * matrix */
+    Matrix *ml = eval_matrix_expr(L);
+    Matrix *mr = eval_matrix_expr(R);
+    if (!ml || !mr) {
+      matrix_free(ml);
+      matrix_free(mr);
+      return NULL;
+    }
+    Matrix *r = matrix_mul(ml, mr);
+    matrix_free(ml);
+    matrix_free(mr);
+    return r;
+  }
+  default:
+    return NULL;
+  }
+}
+
 static int handle_let(const char *input) {
   /* "let NAME = EXPR" */
   const char *p = input;
@@ -109,8 +258,7 @@ static int handle_let(const char *input) {
 }
 
 static int process_input(const char *input, int batch_mode) {
-  if (!batch_mode && handle_let(input) != 0)
-    return 0;
+  /* handle let bindings (REPL only) */
   if (!batch_mode) {
     const char *p = input;
     while (*p == ' ')
@@ -184,6 +332,25 @@ static int process_input(const char *input, int batch_mode) {
       return 0;
     }
   }
+
+  /* substitute known variables and check for matrix expressions */
+  AstNode *resolved = substitute_vars(ast_clone(pr.root), &global_symtab);
+
+  if (has_matrix(resolved)) {
+    Matrix *m = eval_matrix_expr(resolved);
+    ast_free(resolved);
+    if (m) {
+      char *s = matrix_to_string(m);
+      output_str(s, batch_mode);
+      free(s);
+      matrix_free(m);
+    } else {
+      print_error("cannot evaluate matrix expression");
+    }
+    parse_result_free(&pr);
+    return m ? 0 : 1;
+  }
+  ast_free(resolved);
 
   /* numeric evaluation */
   EvalResult er = eval(pr.root, &global_symtab);

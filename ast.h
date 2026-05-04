@@ -1,6 +1,7 @@
 #ifndef SIA_AST_H
 #define SIA_AST_H
 
+#include "matrix.h"
 #include <stddef.h>
 
 typedef enum {
@@ -8,7 +9,8 @@ typedef enum {
   AST_VARIABLE,
   AST_BINOP,
   AST_UNARY_NEG,
-  AST_FUNC_CALL
+  AST_FUNC_CALL,
+  AST_MATRIX
 } AstType;
 
 typedef enum { OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_POW } BinOpKind;
@@ -37,6 +39,8 @@ struct AstNode {
       AstNode **args;
       size_t nargs;
     } call;
+
+    Matrix *matrix;
   } as;
 };
 
@@ -46,6 +50,7 @@ AstNode *ast_binop(BinOpKind op, AstNode *left, AstNode *right);
 AstNode *ast_unary_neg(AstNode *operand);
 AstNode *ast_func_call(const char *name, size_t namelen, AstNode **args,
                        size_t nargs);
+AstNode *ast_matrix(Matrix *m);
 
 AstNode *ast_clone(const AstNode *node);
 void ast_free(AstNode *node);

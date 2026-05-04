@@ -65,6 +65,13 @@ AstNode *ast_func_call(const char *name, size_t namelen, AstNode **args,
   return n;
 }
 
+AstNode *ast_matrix(Matrix *m) {
+  AstNode *n = xmalloc(sizeof *n);
+  n->type = AST_MATRIX;
+  n->as.matrix = m;
+  return n;
+}
+
 AstNode *ast_clone(const AstNode *node) {
   if (!node)
     return NULL;
@@ -94,6 +101,8 @@ AstNode *ast_clone(const AstNode *node) {
     free(args);
     return r;
   }
+  case AST_MATRIX:
+    return ast_matrix(matrix_clone(node->as.matrix));
   }
   return NULL;
 }
@@ -120,6 +129,9 @@ void ast_free(AstNode *node) {
       ast_free(node->as.call.args[i]);
     free(node->as.call.args);
     free(node->as.call.name);
+    break;
+  case AST_MATRIX:
+    matrix_free(node->as.matrix);
     break;
   }
   free(node);
@@ -236,6 +248,12 @@ static void ast_serialize(const AstNode *node, StrBuf *sb,
     }
     sb_append(sb, ")", 1);
     break;
+  case AST_MATRIX: {
+    char *ms = matrix_to_string(node->as.matrix);
+    sb_append(sb, ms, strlen(ms));
+    free(ms);
+    break;
+  }
   }
 }
 

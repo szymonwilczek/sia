@@ -14,6 +14,8 @@ static int node_sort_key(const AstNode *n) {
     return 3;
   case AST_BINOP:
     return 4;
+  case AST_MATRIX:
+    return 5;
   }
   return 5;
 }
@@ -56,6 +58,8 @@ static int node_compare(const AstNode *a, const AstNode *b) {
       return c;
     return node_compare(a->as.binop.right, b->as.binop.right);
   }
+  case AST_MATRIX:
+    return 0;
   }
   return 0;
 }
@@ -80,6 +84,7 @@ AstNode *canonicalize(AstNode *node) {
   switch (node->type) {
   case AST_NUMBER:
   case AST_VARIABLE:
+  case AST_MATRIX:
     return node;
 
   case AST_UNARY_NEG:

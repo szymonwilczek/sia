@@ -69,6 +69,10 @@ Token lexer_next(Lexer *lex) {
     return make_token(TOK_RPAREN, start, 1);
   case ',':
     return make_token(TOK_COMMA, start, 1);
+  case '[':
+    return make_token(TOK_LBRACKET, start, 1);
+  case ']':
+    return make_token(TOK_RBRACKET, start, 1);
   default:
     return make_error(start);
   }
@@ -96,6 +100,10 @@ const char *token_type_name(TokenType type) {
     return "RPAREN";
   case TOK_COMMA:
     return "COMMA";
+  case TOK_LBRACKET:
+    return "LBRACKET";
+  case TOK_RBRACKET:
+    return "RBRACKET";
   case TOK_EOF:
     return "EOF";
   case TOK_ERROR:

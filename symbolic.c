@@ -31,6 +31,8 @@ static int contains_var(const AstNode *n, const char *var) {
       if (contains_var(n->as.call.args[i], var))
         return 1;
     return 0;
+  case AST_MATRIX:
+    return 0;
   }
   return 0;
 }
@@ -63,6 +65,16 @@ static int ast_equal(const AstNode *a, const AstNode *b) {
       if (!ast_equal(a->as.call.args[i], b->as.call.args[i]))
         return 0;
     return 1;
+  case AST_MATRIX:
+    if (!a->as.matrix || !b->as.matrix)
+      return 0;
+    if (a->as.matrix->rows != b->as.matrix->rows ||
+        a->as.matrix->cols != b->as.matrix->cols)
+      return 0;
+    for (size_t i = 0; i < a->as.matrix->rows * a->as.matrix->cols; i++)
+      if (a->as.matrix->data[i] != b->as.matrix->data[i])
+        return 0;
+    return 1;
   }
   return 0;
 }
@@ -74,6 +86,7 @@ AstNode *sym_simplify(AstNode *node) {
   switch (node->type) {
   case AST_NUMBER:
   case AST_VARIABLE:
+  case AST_MATRIX:
     return node;
 
   case AST_UNARY_NEG:
@@ -343,6 +356,9 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
 
   switch (expr->type) {
   case AST_NUMBER:
+    return ast_number(0);
+
+  case AST_MATRIX:
     return ast_number(0);
 
   case AST_VARIABLE:

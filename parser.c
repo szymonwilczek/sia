@@ -1,5 +1,6 @@
 #include "parser.h"
 #include "lexer.h"
+#include "matrix.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +33,91 @@ static int expect(Parser *p, TokenType type) {
 }
 
 static AstNode *parse_expr(Parser *p);
+
+static AstNode *parse_matrix(Parser *p) {
+  /* parse [[r0c0, r0c1, ...], [r1c0, r1c1, ...], ...] */
+  double data[256];
+  size_t rows = 0, cols = 0;
+
+  /* outer [ already consumed; expect inner rows */
+  if (!match(p, TOK_LBRACKET)) {
+    set_error(p, "expected '[' for matrix row");
+    return NULL;
+  }
+
+  while (match(p, TOK_LBRACKET)) {
+    advance(p); /* consume '[' */
+    size_t row_cols = 0;
+
+    /* parse first element */
+    AstNode *elem = parse_expr(p);
+    if (!elem)
+      return NULL;
+    if (elem->type != AST_NUMBER) {
+      set_error(p, "matrix elements must be numeric literals");
+      ast_free(elem);
+      return NULL;
+    }
+    data[rows * 16 + row_cols] = elem->as.number;
+    ast_free(elem);
+    row_cols++;
+
+    while (match(p, TOK_COMMA)) {
+      advance(p);
+      elem = parse_expr(p);
+      if (!elem)
+        return NULL;
+      if (elem->type != AST_NUMBER) {
+        set_error(p, "matrix elements must be numeric literals");
+        ast_free(elem);
+        return NULL;
+      }
+      if (row_cols >= 16) {
+        set_error(p, "matrix row too wide (max 16 columns)");
+        ast_free(elem);
+        return NULL;
+      }
+      data[rows * 16 + row_cols] = elem->as.number;
+      ast_free(elem);
+      row_cols++;
+    }
+
+    if (!expect(p, TOK_RBRACKET))
+      return NULL;
+
+    if (rows == 0) {
+      cols = row_cols;
+    } else if (row_cols != cols) {
+      set_error(p, "matrix rows must have equal number of columns");
+      return NULL;
+    }
+    rows++;
+
+    if (rows >= 16) {
+      set_error(p, "matrix too tall (max 16 rows)");
+      return NULL;
+    }
+
+    /* optional comma between rows */
+    if (match(p, TOK_COMMA))
+      advance(p);
+  }
+
+  if (!expect(p, TOK_RBRACKET))
+    return NULL;
+
+  if (rows == 0) {
+    set_error(p, "empty matrix");
+    return NULL;
+  }
+
+  Matrix *m = matrix_create(rows, cols);
+  for (size_t r = 0; r < rows; r++)
+    for (size_t c = 0; c < cols; c++)
+      matrix_set(m, r, c, data[r * 16 + c]);
+
+  return ast_matrix(m);
+}
 
 static AstNode *parse_primary(Parser *p) {
   if (p->error)
@@ -116,6 +202,11 @@ static AstNode *parse_primary(Parser *p) {
   if (match(p, TOK_PLUS)) {
     advance(p);
     return parse_primary(p);
+  }
+
+  if (match(p, TOK_LBRACKET)) {
+    advance(p); /* consume outer '[' */
+    return parse_matrix(p);
   }
 
   char buf[64];

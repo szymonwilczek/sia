@@ -14,6 +14,8 @@ typedef enum {
   TOK_LPAREN,
   TOK_RPAREN,
   TOK_COMMA,
+  TOK_LBRACKET,
+  TOK_RBRACKET,
   TOK_EOF,
   TOK_ERROR
 } TokenType;
