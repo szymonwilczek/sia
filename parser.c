@@ -86,16 +86,44 @@ static AstNode *parse_matrix(Parser *p) {
     goto cleanup;
   }
 
+  /* support for nested brackets: [[a,b],[c,d]] -> 2x2 matrix
+   * If 1xN matrix where every element is a 1xM matrix -> flatten it */
+  if (rows == 1 && total_parsed > 0 && data[0]->type == AST_MATRIX) {
+    size_t inner_cols = data[0]->as.matrix.cols;
+    size_t inner_rows = data[0]->as.matrix.rows;
+    int all_match = (inner_rows == 1);
+    for (size_t i = 1; i < total_parsed; i++) {
+      if (data[i]->type != AST_MATRIX ||
+          data[i]->as.matrix.cols != inner_cols ||
+          data[i]->as.matrix.rows != 1) {
+        all_match = 0;
+        break;
+      }
+    }
+
+    if (all_match) {
+      size_t new_rows = total_parsed;
+      size_t new_cols = inner_cols;
+      AstNode **new_elements = malloc(new_rows * new_cols * sizeof(AstNode *));
+      for (size_t i = 0; i < new_rows; i++) {
+        for (size_t j = 0; j < new_cols; j++) {
+          new_elements[i * new_cols + j] =
+              ast_clone(data[i]->as.matrix.elements[j]);
+        }
+        ast_free(data[i]);
+      }
+      return ast_matrix(new_elements, new_rows, new_cols);
+    }
+  }
+
   AstNode **final_data = malloc(total_parsed * sizeof(AstNode *));
   memcpy(final_data, data, total_parsed * sizeof(AstNode *));
   return ast_matrix(final_data, rows, cols);
 
 cleanup:
-  /* free partial row in progress (total_parsed > rows*cols means partial) */
-  if (total_parsed > rows * cols) {
-    size_t partial = total_parsed - rows * cols;
-    for (size_t j = 0; j < partial; j++)
-      ast_free(data[rows * 16 + j]);
+  /* free partial row in progress */
+  for (size_t i = 0; i < total_parsed; i++) {
+    ast_free(data[i]);
   }
   return NULL;
 }
