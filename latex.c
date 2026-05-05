@@ -68,7 +68,8 @@ static int is_latex_func(const char *name) {
   return 0;
 }
 static int is_negative_number(const AstNode *n) {
-  return n->type == AST_NUMBER && n->as.number < 0;
+  return n->type == AST_NUMBER && c_is_real(n->as.number) &&
+         n->as.number.re < 0;
 }
 
 static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
@@ -96,8 +97,16 @@ static void latex_child(const AstNode *child, StrBuf *sb, const AstNode *parent,
 
 static int needs_mul_dot(const AstNode *left, const AstNode *right) {
   /* number * number: 3 \cdot 4 */
-  if (left->type == AST_NUMBER && right->type == AST_NUMBER)
+  if (left->type == AST_NUMBER && right->type == AST_NUMBER) {
+    /* avoid \cdot for 2i */
+    if (fabs(right->as.number.re) < 1e-15 &&
+        fabs(right->as.number.im - 1.0) < 1e-15)
+      return 0;
     return 1;
+  }
+  /* number * identifier: 3x (no dot) */
+  if (left->type == AST_NUMBER && right->type == AST_VARIABLE)
+    return 0;
   /* number * (expr with leading number): avoid 23 ambiguity */
   if (left->type == AST_NUMBER && right->type == AST_BINOP &&
       right->as.binop.op == OP_MUL && right->as.binop.left->type == AST_NUMBER)
@@ -112,19 +121,62 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
 
   switch (node->type) {
   case AST_NUMBER: {
-    double v = node->as.number;
-    Fraction f = fraction_from_double(v);
-    if (f.den != 1) {
-      if (f.num < 0) {
-        sb_printf(sb, "-\\frac{%lld}{%lld}", -f.num, f.den);
+    Complex z = node->as.number;
+    if (z.im == 0.0) {
+      double v = z.re;
+      Fraction f = fraction_from_double(v);
+      if (f.den != 1) {
+        if (f.num < 0) {
+          sb_printf(sb, "-\\frac{%lld}{%lld}", -f.num, f.den);
+        } else {
+          sb_printf(sb, "\\frac{%lld}{%lld}", f.num, f.den);
+        }
       } else {
-        sb_printf(sb, "\\frac{%lld}{%lld}", f.num, f.den);
+        if (v == (long long)v && fabs(v) < 1e15)
+          sb_printf(sb, "%lld", (long long)v);
+        else
+          sb_printf(sb, "%g", v);
+      }
+    } else if (z.re == 0.0) {
+      if (z.im == 1.0)
+        sb_puts(sb, "i");
+      else if (z.im == -1.0)
+        sb_puts(sb, "-i");
+      else {
+        if (z.im == (long long)z.im && fabs(z.im) < 1e15)
+          sb_printf(sb, "%lldi", (long long)z.im);
+        else
+          sb_printf(sb, "%gi", z.im);
       }
     } else {
-      if (v == (long long)v && fabs(v) < 1e15)
-        sb_printf(sb, "%lld", (long long)v);
+      /* a + bi form */
+      if (z.re == (long long)z.re && fabs(z.re) < 1e15)
+        sb_printf(sb, "%lld", (long long)z.re);
       else
-        sb_printf(sb, "%g", v);
+        sb_printf(sb, "%g", z.re);
+
+      if (z.im > 0) {
+        sb_puts(sb, " + ");
+        if (z.im == 1.0)
+          sb_puts(sb, "i");
+        else {
+          if (z.im == (long long)z.im && fabs(z.im) < 1e15)
+            sb_printf(sb, "%lldi", (long long)z.im);
+          else
+            sb_printf(sb, "%gi", z.im);
+        }
+      } else {
+        sb_puts(sb, " - ");
+        double aim = -z.im;
+        if (aim == 1.0)
+          sb_puts(sb, "i");
+        else {
+          if (aim == (long long)aim && fabs(aim) < 1e15)
+            sb_printf(sb, "%lldi", (long long)aim);
+          else
+            sb_printf(sb, "%gi", aim);
+        }
+      }
     }
     break;
   }
@@ -168,7 +220,8 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
     }
 
     if (op == OP_POW) {
-      if (R->type == AST_NUMBER && R->as.number == -1.0) {
+      if (R->type == AST_NUMBER && c_is_real(R->as.number) &&
+          R->as.number.re == -1.0) {
         sb_puts(sb, "\\frac{1}{");
         latex_node(L, sb, NULL, 0);
         sb_puts(sb, "}");
@@ -188,8 +241,8 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
     }
 
     if (op == OP_MUL) {
-      if (L->type == AST_NUMBER) {
-        Fraction f = fraction_from_double(L->as.number);
+      if (L->type == AST_NUMBER && c_is_real(L->as.number)) {
+        Fraction f = fraction_from_double(L->as.number.re);
         if (f.den != 1) {
           if (f.num == 1) {
             sb_puts(sb, "\\frac{");
@@ -230,7 +283,7 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
         sb_puts(sb, " - ");
         latex_node(R->as.unary.operand, sb, node, 1);
       } else if (is_negative_number(R)) {
-        sb_printf(sb, " - %lld", (long long)(-R->as.number));
+        sb_printf(sb, " - %g", -R->as.number.re);
       } else {
         sb_puts(sb, " + ");
         latex_child(R, sb, node, 1, 0);

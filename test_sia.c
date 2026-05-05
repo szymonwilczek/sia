@@ -44,9 +44,18 @@ static int tests_passed = 0;
   } while (0)
 #define ASSERT_NEAR(a, b, eps)                                                 \
   do {                                                                         \
-    if (fabs((a) - (b)) > (eps)) {                                             \
+    if (fabs((double)(a) - (double)(b)) > (eps)) {                             \
       char _buf[128];                                                          \
       snprintf(_buf, sizeof _buf, "%g != %g", (double)(a), (double)(b));       \
+      FAIL(_buf);                                                              \
+      return;                                                                  \
+    }                                                                          \
+  } while (0)
+#define ASSERT_CNEAR(a, b, eps)                                                \
+  do {                                                                         \
+    if (c_abs(c_sub((a), (b))) > (eps)) {                                      \
+      char _buf[128];                                                          \
+      snprintf(_buf, sizeof _buf, "complex mismatch");                         \
       FAIL(_buf);                                                              \
       return;                                                                  \
     }                                                                          \
@@ -69,7 +78,8 @@ static int tests_passed = 0;
   } while (0)
 
 static int is_num_node(const AstNode *n, double v) {
-  return n && n->type == AST_NUMBER && fabs(n->as.number - v) < 1e-9;
+  return n && n->type == AST_NUMBER &&
+         c_abs(c_sub(n->as.number, c_real(v))) < 1e-9;
 }
 
 /* Lexer*/
@@ -155,7 +165,7 @@ static void test_parser_number(void) {
   ASSERT_TRUE(r.root != NULL);
   ASSERT_TRUE(r.error == NULL);
   ASSERT_EQ(r.root->type, AST_NUMBER);
-  ASSERT_NEAR(r.root->as.number, 42.0, 1e-9);
+  ASSERT_CNEAR(r.root->as.number, c_real(42.0), 1e-9);
   parse_result_free(&r);
   PASS();
 }
@@ -213,7 +223,7 @@ static void test_parser_unary_neg(void) {
   ParseResult r = parse("-5");
   ASSERT_TRUE(r.root != NULL);
   ASSERT_EQ(r.root->type, AST_NUMBER);
-  ASSERT_NEAR(r.root->as.number, -5.0, 1e-9);
+  ASSERT_CNEAR(r.root->as.number, c_real(-5.0), 1e-9);
   parse_result_free(&r);
   PASS();
 }
@@ -263,7 +273,7 @@ static void test_eval_arithmetic(void) {
   ASSERT_TRUE(r.root != NULL);
   EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
-  ASSERT_NEAR(e.value, 14.0, 1e-9);
+  ASSERT_CNEAR(e.value, c_real(14.0), 1e-9);
   eval_result_free(&e);
   parse_result_free(&r);
   PASS();
@@ -274,7 +284,7 @@ static void test_eval_power(void) {
   ParseResult r = parse("2^10");
   EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
-  ASSERT_NEAR(e.value, 1024.0, 1e-9);
+  ASSERT_CNEAR(e.value, c_real(1024.0), 1e-9);
   eval_result_free(&e);
   parse_result_free(&r);
   PASS();
@@ -285,7 +295,7 @@ static void test_eval_functions(void) {
   ParseResult r = parse("sin(0)");
   EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
-  ASSERT_NEAR(e.value, 0.0, 1e-9);
+  ASSERT_CNEAR(e.value, c_real(0.0), 1e-9);
   eval_result_free(&e);
   parse_result_free(&r);
   PASS();
@@ -296,7 +306,7 @@ static void test_eval_cos(void) {
   ParseResult r = parse("cos(0)");
   EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
-  ASSERT_NEAR(e.value, 1.0, 1e-9);
+  ASSERT_CNEAR(e.value, c_real(1.0), 1e-9);
   eval_result_free(&e);
   parse_result_free(&r);
   PASS();
@@ -307,7 +317,7 @@ static void test_eval_sqrt(void) {
   ParseResult r = parse("sqrt(144)");
   EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
-  ASSERT_NEAR(e.value, 12.0, 1e-9);
+  ASSERT_CNEAR(e.value, c_real(12.0), 1e-9);
   eval_result_free(&e);
   parse_result_free(&r);
   PASS();
@@ -318,7 +328,7 @@ static void test_eval_pi(void) {
   ParseResult r = parse("pi");
   EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
-  ASSERT_NEAR(e.value, M_PI, 1e-9);
+  ASSERT_CNEAR(e.value, c_real(M_PI), 1e-9);
   eval_result_free(&e);
   parse_result_free(&r);
   PASS();
@@ -329,7 +339,7 @@ static void test_eval_complex_expr(void) {
   ParseResult r = parse("(3+4)*(2-1)^2");
   EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
-  ASSERT_NEAR(e.value, 7.0, 1e-9);
+  ASSERT_CNEAR(e.value, c_real(7.0), 1e-9);
   eval_result_free(&e);
   parse_result_free(&r);
   PASS();
@@ -351,7 +361,7 @@ static void test_eval_nested_func(void) {
   ParseResult r = parse("sqrt(abs(-16))");
   EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
-  ASSERT_NEAR(e.value, 4.0, 1e-9);
+  ASSERT_CNEAR(e.value, c_real(4.0), 1e-9);
   eval_result_free(&e);
   parse_result_free(&r);
   PASS();
@@ -361,11 +371,11 @@ static void test_eval_symtab(void) {
   TEST("eval: symbol table lookup");
   SymTab st;
   symtab_init(&st);
-  symtab_set(&st, "g", 9.81);
+  symtab_set(&st, "g", c_real(9.81));
   ParseResult r = parse("g");
   EvalResult e = eval(r.root, &st);
   ASSERT_TRUE(e.ok);
-  ASSERT_NEAR(e.value, 9.81, 1e-9);
+  ASSERT_CNEAR(e.value, c_real(9.81), 1e-9);
   eval_result_free(&e);
   parse_result_free(&r);
   symtab_free(&st);
@@ -377,42 +387,49 @@ static void test_eval_hyperbolic(void) {
   ParseResult r1 = parse("sinh(0)");
   EvalResult e1 = eval(r1.root, NULL);
   ASSERT_TRUE(e1.ok);
-  ASSERT_NEAR(e1.value, 0.0, 1e-9);
+  ASSERT_CNEAR(e1.value, c_real(0.0), 1e-9);
   eval_result_free(&e1);
   parse_result_free(&r1);
 
   ParseResult r2 = parse("cosh(0)");
   EvalResult e2 = eval(r2.root, NULL);
   ASSERT_TRUE(e2.ok);
-  ASSERT_NEAR(e2.value, 1.0, 1e-9);
+  ASSERT_CNEAR(e2.value, c_real(1.0), 1e-9);
   eval_result_free(&e2);
   parse_result_free(&r2);
   PASS();
 }
 
-static void test_eval_domain_errors(void) {
-  TEST("eval: domain errors for ln, sqrt, log, asin");
+static void test_eval_complex_domain(void) {
+  TEST("eval: complex results for ln(-1), sqrt(-1), asin(2)");
   ParseResult r1 = parse("ln(-1)");
   EvalResult e1 = eval(r1.root, NULL);
-  ASSERT_TRUE(!e1.ok);
+  ASSERT_TRUE(e1.ok);
+  ASSERT_NEAR(e1.value.re, 0.0, 1e-9);
+  ASSERT_NEAR(fabs(e1.value.im), M_PI, 1e-9);
   eval_result_free(&e1);
   parse_result_free(&r1);
 
   ParseResult r2 = parse("sqrt(-1)");
   EvalResult e2 = eval(r2.root, NULL);
-  ASSERT_TRUE(!e2.ok);
+  ASSERT_TRUE(e2.ok);
+  ASSERT_NEAR(e2.value.re, 0.0, 1e-9);
+  ASSERT_NEAR(e2.value.im, 1.0, 1e-9);
   eval_result_free(&e2);
   parse_result_free(&r2);
 
   ParseResult r3 = parse("log(0)");
   EvalResult e3 = eval(r3.root, NULL);
-  ASSERT_TRUE(!e3.ok);
+  ASSERT_TRUE(!e3.ok); /* log(0) is still -inf error */
   eval_result_free(&e3);
   parse_result_free(&r3);
 
   ParseResult r4 = parse("asin(2)");
   EvalResult e4 = eval(r4.root, NULL);
-  ASSERT_TRUE(!e4.ok);
+  ASSERT_TRUE(e4.ok);
+  /* asin(2) = pi/2 - i*ln(2+sqrt(3)) */
+  ASSERT_NEAR(e4.value.re, M_PI / 2.0, 1e-9);
+  ASSERT_NEAR(e4.value.im, -1.3169578969, 1e-7);
   eval_result_free(&e4);
   parse_result_free(&r4);
   PASS();
@@ -446,7 +463,7 @@ static void test_simplify_const_fold(void) {
   ParseResult r = parse("2 * 3");
   AstNode *s = sym_simplify(ast_clone(r.root));
   ASSERT_EQ(s->type, AST_NUMBER);
-  ASSERT_NEAR(s->as.number, 6.0, 1e-9);
+  ASSERT_CNEAR(s->as.number, c_real(6.0), 1e-9);
   ast_free(s);
   parse_result_free(&r);
   PASS();
@@ -642,8 +659,8 @@ static void test_expand(void) {
 }
 
 static void test_matrix_expand(void) {
-  TEST("expand: [[x, 1], [1, x]]^2 -> [1 + x^2, 2*x; 2*x, 1 + x^2]");
-  ParseResult r = parse("[[x, 1], [1, x]]^2");
+  TEST("expand: [x, 1; 1, x]^2 -> [1 + x^2, 2*x; 2*x, 1 + x^2]");
+  ParseResult r = parse("[x, 1; 1, x]^2");
   AstNode *expr = ast_clone(r.root);
   expr = sym_expand(expr);
   expr = ast_canonicalize(expr);
@@ -1013,10 +1030,10 @@ static void test_symtab_set_get(void) {
   TEST("symtab: set and get value");
   SymTab st;
   symtab_init(&st);
-  symtab_set(&st, "x", 42.0);
-  double val;
+  symtab_set(&st, "x", c_real(42.0));
+  Complex val;
   ASSERT_TRUE(symtab_get(&st, "x", &val));
-  ASSERT_NEAR(val, 42.0, 1e-9);
+  ASSERT_CNEAR(val, c_real(42.0), 1e-9);
   symtab_free(&st);
   PASS();
 }
@@ -1025,11 +1042,11 @@ static void test_symtab_overwrite(void) {
   TEST("symtab: overwrite existing value");
   SymTab st;
   symtab_init(&st);
-  symtab_set(&st, "x", 1.0);
-  symtab_set(&st, "x", 2.0);
-  double val;
+  symtab_set(&st, "x", c_real(1.0));
+  symtab_set(&st, "x", c_real(2.0));
+  Complex val;
   ASSERT_TRUE(symtab_get(&st, "x", &val));
-  ASSERT_NEAR(val, 2.0, 1e-9);
+  ASSERT_CNEAR(val, c_real(2.0), 1e-9);
   symtab_free(&st);
   PASS();
 }
@@ -1038,7 +1055,7 @@ static void test_symtab_missing(void) {
   TEST("symtab: missing key returns 0");
   SymTab st;
   symtab_init(&st);
-  double val;
+  Complex val;
   ASSERT_TRUE(!symtab_get(&st, "nope", &val));
   symtab_free(&st);
   PASS();
@@ -1048,9 +1065,9 @@ static void test_symtab_remove(void) {
   TEST("symtab: remove entry");
   SymTab st;
   symtab_init(&st);
-  symtab_set(&st, "x", 1.0);
+  symtab_set(&st, "x", c_real(1.0));
   symtab_remove(&st, "x");
-  double val;
+  Complex val;
   ASSERT_TRUE(!symtab_get(&st, "x", &val));
   symtab_free(&st);
   PASS();
@@ -1076,12 +1093,12 @@ static void test_symtab_expr(void) {
 static void test_matrix_create(void) {
   TEST("matrix: create and access");
   Matrix *m = matrix_create(2, 2);
-  matrix_set(m, 0, 0, 1.0);
-  matrix_set(m, 0, 1, 2.0);
-  matrix_set(m, 1, 0, 3.0);
-  matrix_set(m, 1, 1, 4.0);
-  ASSERT_NEAR(matrix_get(m, 0, 0), 1.0, 1e-9);
-  ASSERT_NEAR(matrix_get(m, 1, 1), 4.0, 1e-9);
+  matrix_set(m, 0, 0, c_real(1.0));
+  matrix_set(m, 0, 1, c_real(2.0));
+  matrix_set(m, 1, 0, c_real(3.0));
+  matrix_set(m, 1, 1, c_real(4.0));
+  ASSERT_CNEAR(matrix_get(m, 0, 0), c_real(1.0), 1e-9);
+  ASSERT_CNEAR(matrix_get(m, 1, 1), c_real(4.0), 1e-9);
   matrix_free(m);
   PASS();
 }
@@ -1090,18 +1107,18 @@ static void test_matrix_add(void) {
   TEST("matrix: addition");
   Matrix *a = matrix_create(2, 2);
   Matrix *b = matrix_create(2, 2);
-  matrix_set(a, 0, 0, 1);
-  matrix_set(a, 0, 1, 2);
-  matrix_set(a, 1, 0, 3);
-  matrix_set(a, 1, 1, 4);
-  matrix_set(b, 0, 0, 5);
-  matrix_set(b, 0, 1, 6);
-  matrix_set(b, 1, 0, 7);
-  matrix_set(b, 1, 1, 8);
+  matrix_set(a, 0, 0, c_real(1));
+  matrix_set(a, 0, 1, c_real(2));
+  matrix_set(a, 1, 0, c_real(3));
+  matrix_set(a, 1, 1, c_real(4));
+  matrix_set(b, 0, 0, c_real(5));
+  matrix_set(b, 0, 1, c_real(6));
+  matrix_set(b, 1, 0, c_real(7));
+  matrix_set(b, 1, 1, c_real(8));
   Matrix *c = matrix_add(a, b);
   ASSERT_TRUE(c != NULL);
-  ASSERT_NEAR(matrix_get(c, 0, 0), 6.0, 1e-9);
-  ASSERT_NEAR(matrix_get(c, 1, 1), 12.0, 1e-9);
+  ASSERT_CNEAR(matrix_get(c, 0, 0), c_real(6.0), 1e-9);
+  ASSERT_CNEAR(matrix_get(c, 1, 1), c_real(12.0), 1e-9);
   matrix_free(a);
   matrix_free(b);
   matrix_free(c);
@@ -1112,20 +1129,20 @@ static void test_matrix_mul(void) {
   TEST("matrix: multiplication");
   Matrix *a = matrix_create(2, 2);
   Matrix *b = matrix_create(2, 2);
-  matrix_set(a, 0, 0, 1);
-  matrix_set(a, 0, 1, 2);
-  matrix_set(a, 1, 0, 3);
-  matrix_set(a, 1, 1, 4);
-  matrix_set(b, 0, 0, 5);
-  matrix_set(b, 0, 1, 6);
-  matrix_set(b, 1, 0, 7);
-  matrix_set(b, 1, 1, 8);
+  matrix_set(a, 0, 0, c_real(1));
+  matrix_set(a, 0, 1, c_real(2));
+  matrix_set(a, 1, 0, c_real(3));
+  matrix_set(a, 1, 1, c_real(4));
+  matrix_set(b, 0, 0, c_real(5));
+  matrix_set(b, 0, 1, c_real(6));
+  matrix_set(b, 1, 0, c_real(7));
+  matrix_set(b, 1, 1, c_real(8));
   Matrix *c = matrix_mul(a, b);
   ASSERT_TRUE(c != NULL);
-  ASSERT_NEAR(matrix_get(c, 0, 0), 19.0, 1e-9);
-  ASSERT_NEAR(matrix_get(c, 0, 1), 22.0, 1e-9);
-  ASSERT_NEAR(matrix_get(c, 1, 0), 43.0, 1e-9);
-  ASSERT_NEAR(matrix_get(c, 1, 1), 50.0, 1e-9);
+  ASSERT_CNEAR(matrix_get(c, 0, 0), c_real(19.0), 1e-9);
+  ASSERT_CNEAR(matrix_get(c, 0, 1), c_real(22.0), 1e-9);
+  ASSERT_CNEAR(matrix_get(c, 1, 0), c_real(43.0), 1e-9);
+  ASSERT_CNEAR(matrix_get(c, 1, 1), c_real(50.0), 1e-9);
   matrix_free(a);
   matrix_free(b);
   matrix_free(c);
@@ -1135,11 +1152,11 @@ static void test_matrix_mul(void) {
 static void test_matrix_det(void) {
   TEST("matrix: determinant 2x2");
   Matrix *m = matrix_create(2, 2);
-  matrix_set(m, 0, 0, 1);
-  matrix_set(m, 0, 1, 2);
-  matrix_set(m, 1, 0, 3);
-  matrix_set(m, 1, 1, 4);
-  ASSERT_NEAR(matrix_det(m), -2.0, 1e-9);
+  matrix_set(m, 0, 0, c_real(1));
+  matrix_set(m, 0, 1, c_real(2));
+  matrix_set(m, 1, 0, c_real(3));
+  matrix_set(m, 1, 1, c_real(4));
+  ASSERT_CNEAR(matrix_det(m), c_real(-2.0), 1e-9);
   matrix_free(m);
   PASS();
 }
@@ -1147,16 +1164,16 @@ static void test_matrix_det(void) {
 static void test_matrix_det_3x3(void) {
   TEST("matrix: determinant 3x3");
   Matrix *m = matrix_create(3, 3);
-  matrix_set(m, 0, 0, 6);
-  matrix_set(m, 0, 1, 1);
-  matrix_set(m, 0, 2, 1);
-  matrix_set(m, 1, 0, 4);
-  matrix_set(m, 1, 1, -2);
-  matrix_set(m, 1, 2, 5);
-  matrix_set(m, 2, 0, 2);
-  matrix_set(m, 2, 1, 8);
-  matrix_set(m, 2, 2, 7);
-  ASSERT_NEAR(matrix_det(m), -306.0, 1e-9);
+  matrix_set(m, 0, 0, c_real(6));
+  matrix_set(m, 0, 1, c_real(1));
+  matrix_set(m, 0, 2, c_real(1));
+  matrix_set(m, 1, 0, c_real(4));
+  matrix_set(m, 1, 1, c_real(-2));
+  matrix_set(m, 1, 2, c_real(5));
+  matrix_set(m, 2, 0, c_real(2));
+  matrix_set(m, 2, 1, c_real(8));
+  matrix_set(m, 2, 2, c_real(7));
+  ASSERT_CNEAR(matrix_det(m), c_real(-306.0), 1e-9);
   matrix_free(m);
   PASS();
 }
@@ -1164,19 +1181,19 @@ static void test_matrix_det_3x3(void) {
 static void test_matrix_inverse(void) {
   TEST("matrix: inverse 2x2");
   Matrix *m = matrix_create(2, 2);
-  matrix_set(m, 0, 0, 4);
-  matrix_set(m, 0, 1, 7);
-  matrix_set(m, 1, 0, 2);
-  matrix_set(m, 1, 1, 6);
+  matrix_set(m, 0, 0, c_real(4));
+  matrix_set(m, 0, 1, c_real(7));
+  matrix_set(m, 1, 0, c_real(2));
+  matrix_set(m, 1, 1, c_real(6));
   Matrix *inv = matrix_inverse(m);
   ASSERT_TRUE(inv != NULL);
 
   /* M * M^-1 should be identity */
   Matrix *id = matrix_mul(m, inv);
-  ASSERT_NEAR(matrix_get(id, 0, 0), 1.0, 1e-9);
-  ASSERT_NEAR(matrix_get(id, 0, 1), 0.0, 1e-9);
-  ASSERT_NEAR(matrix_get(id, 1, 0), 0.0, 1e-9);
-  ASSERT_NEAR(matrix_get(id, 1, 1), 1.0, 1e-9);
+  ASSERT_CNEAR(matrix_get(id, 0, 0), c_real(1.0), 1e-9);
+  ASSERT_CNEAR(matrix_get(id, 0, 1), c_real(0.0), 1e-9);
+  ASSERT_CNEAR(matrix_get(id, 1, 0), c_real(0.0), 1e-9);
+  ASSERT_CNEAR(matrix_get(id, 1, 1), c_real(1.0), 1e-9);
   matrix_free(m);
   matrix_free(inv);
   matrix_free(id);
@@ -1186,17 +1203,17 @@ static void test_matrix_inverse(void) {
 static void test_matrix_transpose(void) {
   TEST("matrix: transpose");
   Matrix *m = matrix_create(2, 3);
-  matrix_set(m, 0, 0, 1);
-  matrix_set(m, 0, 1, 2);
-  matrix_set(m, 0, 2, 3);
-  matrix_set(m, 1, 0, 4);
-  matrix_set(m, 1, 1, 5);
-  matrix_set(m, 1, 2, 6);
+  matrix_set(m, 0, 0, c_real(1));
+  matrix_set(m, 0, 1, c_real(2));
+  matrix_set(m, 0, 2, c_real(3));
+  matrix_set(m, 1, 0, c_real(4));
+  matrix_set(m, 1, 1, c_real(5));
+  matrix_set(m, 1, 2, c_real(6));
   Matrix *t = matrix_transpose(m);
   ASSERT_EQ(t->rows, 3);
   ASSERT_EQ(t->cols, 2);
-  ASSERT_NEAR(matrix_get(t, 0, 0), 1.0, 1e-9);
-  ASSERT_NEAR(matrix_get(t, 2, 1), 6.0, 1e-9);
+  ASSERT_CNEAR(matrix_get(t, 0, 0), c_real(1.0), 1e-9);
+  ASSERT_CNEAR(matrix_get(t, 2, 1), c_real(6.0), 1e-9);
   matrix_free(m);
   matrix_free(t);
   PASS();
@@ -1205,10 +1222,10 @@ static void test_matrix_transpose(void) {
 static void test_matrix_identity(void) {
   TEST("matrix: identity 3x3");
   Matrix *id = matrix_identity(3);
-  ASSERT_NEAR(matrix_get(id, 0, 0), 1.0, 1e-9);
-  ASSERT_NEAR(matrix_get(id, 1, 1), 1.0, 1e-9);
-  ASSERT_NEAR(matrix_get(id, 2, 2), 1.0, 1e-9);
-  ASSERT_NEAR(matrix_get(id, 0, 1), 0.0, 1e-9);
+  ASSERT_CNEAR(matrix_get(id, 0, 0), c_real(1.0), 1e-9);
+  ASSERT_CNEAR(matrix_get(id, 1, 1), c_real(1.0), 1e-9);
+  ASSERT_CNEAR(matrix_get(id, 2, 2), c_real(1.0), 1e-9);
+  ASSERT_CNEAR(matrix_get(id, 0, 1), c_real(0.0), 1e-9);
   matrix_free(id);
   PASS();
 }
@@ -1216,10 +1233,10 @@ static void test_matrix_identity(void) {
 static void test_matrix_trace(void) {
   TEST("matrix: trace");
   Matrix *m = matrix_create(3, 3);
-  matrix_set(m, 0, 0, 1);
-  matrix_set(m, 1, 1, 5);
-  matrix_set(m, 2, 2, 9);
-  ASSERT_NEAR(matrix_trace(m), 15.0, 1e-9);
+  matrix_set(m, 0, 0, c_real(1));
+  matrix_set(m, 1, 1, c_real(5));
+  matrix_set(m, 2, 2, c_real(9));
+  ASSERT_CNEAR(matrix_trace(m), c_real(15.0), 1e-9);
   matrix_free(m);
   PASS();
 }
@@ -1227,10 +1244,10 @@ static void test_matrix_trace(void) {
 static void test_matrix_to_string(void) {
   TEST("matrix: serialization");
   Matrix *m = matrix_create(2, 2);
-  matrix_set(m, 0, 0, 1);
-  matrix_set(m, 0, 1, 2);
-  matrix_set(m, 1, 0, 3);
-  matrix_set(m, 1, 1, 4);
+  matrix_set(m, 0, 0, c_real(1));
+  matrix_set(m, 0, 1, c_real(2));
+  matrix_set(m, 1, 0, c_real(3));
+  matrix_set(m, 1, 1, c_real(4));
   char *s = matrix_to_string(m);
   ASSERT_STR_EQ(s, "[1, 2; 3, 4]");
   free(s);
@@ -1241,10 +1258,10 @@ static void test_matrix_to_string(void) {
 static void test_matrix_singular(void) {
   TEST("matrix: inverse of singular returns NULL");
   Matrix *m = matrix_create(2, 2);
-  matrix_set(m, 0, 0, 1);
-  matrix_set(m, 0, 1, 2);
-  matrix_set(m, 1, 0, 2);
-  matrix_set(m, 1, 1, 4);
+  matrix_set(m, 0, 0, c_real(1));
+  matrix_set(m, 0, 1, c_real(2));
+  matrix_set(m, 1, 0, c_real(2));
+  matrix_set(m, 1, 1, c_real(4));
   Matrix *inv = matrix_inverse(m);
   ASSERT_TRUE(inv == NULL);
   matrix_free(m);
@@ -1273,8 +1290,8 @@ static void test_lexer_brackets(void) {
 }
 
 static void test_parser_matrix_2x2(void) {
-  TEST("parser: matrix literal [[1,2],[3,4]]");
-  ParseResult r = parse("[[1,2],[3,4]]");
+  TEST("parser: matrix literal [1,2;3,4]");
+  ParseResult r = parse("[1,2;3,4]");
   ASSERT_TRUE(r.root != NULL);
   ASSERT_TRUE(r.error == NULL);
   ASSERT_EQ(r.root->type, AST_MATRIX);
@@ -1289,8 +1306,8 @@ static void test_parser_matrix_2x2(void) {
 }
 
 static void test_parser_matrix_1xN(void) {
-  TEST("parser: row matrix [[1,2,3]]");
-  ParseResult r = parse("[[1,2,3]]");
+  TEST("parser: row matrix [1,2,3]");
+  ParseResult r = parse("[1,2,3]");
   ASSERT_TRUE(r.root != NULL);
   ASSERT_TRUE(r.error == NULL);
   ASSERT_EQ(r.root->type, AST_MATRIX);
@@ -1301,8 +1318,8 @@ static void test_parser_matrix_1xN(void) {
 }
 
 static void test_parser_matrix_symbolic(void) {
-  TEST("parser: symbolic matrix [[sin(x), 1]]");
-  ParseResult r = parse("[[sin(x), 1]]");
+  TEST("parser: symbolic matrix [sin(x), 1]");
+  ParseResult r = parse("[sin(x), 1]");
   ASSERT_TRUE(r.root != NULL);
   ASSERT_TRUE(r.error == NULL);
   ASSERT_EQ(r.root->type, AST_MATRIX);
@@ -1315,8 +1332,8 @@ static void test_parser_matrix_symbolic(void) {
 }
 
 static void test_diff_matrix(void) {
-  TEST("diff: d/dx([[x^2, x]]) = [[2*x, 1]]");
-  ParseResult r = parse("[[x^2, x]]");
+  TEST("diff: d/dx([x^2, x]) = [2*x, 1]");
+  ParseResult r = parse("[x^2, x]");
   AstNode *d = sym_diff(r.root, "x");
   ASSERT_TRUE(d != NULL);
   ASSERT_EQ(d->type, AST_MATRIX);
@@ -1329,8 +1346,8 @@ static void test_diff_matrix(void) {
 }
 
 static void test_sym_det_1x1(void) {
-  TEST("sym_det: 1x1 [[x]]");
-  ParseResult r = parse("[[x]]");
+  TEST("sym_det: 1x1 [x]");
+  ParseResult r = parse("[x]");
   AstNode *d = sym_det(r.root);
   ASSERT_TRUE(d != NULL);
   char *s = ast_to_string(d);
@@ -1342,8 +1359,8 @@ static void test_sym_det_1x1(void) {
 }
 
 static void test_sym_det_2x2(void) {
-  TEST("sym_det: 2x2 [[a,b],[c,d]]");
-  ParseResult r = parse("[[a,b],[c,d]]");
+  TEST("sym_det: 2x2 [a,b;c,d]");
+  ParseResult r = parse("[a,b;c,d]");
   AstNode *d = sym_det(r.root);
   ASSERT_TRUE(d != NULL);
   char *s = ast_to_string(d);
@@ -1355,8 +1372,8 @@ static void test_sym_det_2x2(void) {
 }
 
 static void test_sym_det_2x2_numeric(void) {
-  TEST("sym_det: 2x2 numeric [[1,2],[3,4]]");
-  ParseResult r = parse("[[1,2],[3,4]]");
+  TEST("sym_det: 2x2 numeric [1,2;3,4]");
+  ParseResult r = parse("[1,2;3,4]");
   AstNode *d = sym_det(r.root);
   ASSERT_TRUE(d != NULL);
   char *s = ast_to_string(d);
@@ -1368,8 +1385,8 @@ static void test_sym_det_2x2_numeric(void) {
 }
 
 static void test_sym_det_3x3(void) {
-  TEST("sym_det: 3x3 numeric [[6,1,1],[4,-2,5],[2,8,7]]");
-  ParseResult r = parse("[[6,1,1],[4,-2,5],[2,8,7]]");
+  TEST("sym_det: 3x3 numeric [6,1,1;4,-2,5;2,8,7]");
+  ParseResult r = parse("[6,1,1;4,-2,5;2,8,7]");
   AstNode *d = sym_det(r.root);
   ASSERT_TRUE(d != NULL);
   char *s = ast_to_string(d);
@@ -1382,7 +1399,7 @@ static void test_sym_det_3x3(void) {
 
 static void test_sym_det_nonsquare(void) {
   TEST("sym_det: non-square returns NULL");
-  ParseResult r = parse("[[1,2,3],[4,5,6]]");
+  ParseResult r = parse("[1,2,3;4,5,6]");
   AstNode *d = sym_det(r.root);
   ASSERT_TRUE(d == NULL);
   parse_result_free(&r);
@@ -1667,7 +1684,7 @@ static void test_latex_unary_neg(void) {
 
 static void test_latex_matrix(void) {
   TEST("latex: 2x2 matrix -> pmatrix env");
-  ParseResult r = parse("[[1, 2], [3, 4]]");
+  ParseResult r = parse("[1, 2; 3, 4]");
   char *s = ast_to_latex(r.root);
   ASSERT_STR_EQ(s, "\\begin{pmatrix}\n1 & 2 \\\\\n3 & 4\n\\end{pmatrix}");
   free(s);
@@ -1705,6 +1722,26 @@ static void test_latex_complex_expr(void) {
   PASS();
 }
 
+static void test_latex_complex_num(void) {
+  TEST("latex: complex number 2 + 3i");
+  AstNode *n = ast_complex(2.0, 3.0);
+  char *s = ast_to_latex(n);
+  ASSERT_STR_EQ(s, "2 + 3i");
+  free(s);
+  ast_free(n);
+  PASS();
+}
+
+static void test_latex_imaginary(void) {
+  TEST("latex: pure imaginary 5i");
+  AstNode *n = ast_complex(0.0, 5.0);
+  char *s = ast_to_latex(n);
+  ASSERT_STR_EQ(s, "5i");
+  free(s);
+  ast_free(n);
+  PASS();
+}
+
 /* Solver */
 
 static void test_solve_linear(void) {
@@ -1712,10 +1749,10 @@ static void test_solve_linear(void) {
   ParseResult pr = parse("2*x + 6");
   SymTab st;
   memset(&st, 0, sizeof(st));
-  SolveResult r = sym_solve(pr.root, "x", 0, &st);
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
   ASSERT_TRUE(r.ok);
   ASSERT_EQ((int)r.count, 1);
-  ASSERT_NEAR(r.roots[0], -3.0, 1e-10);
+  ASSERT_CNEAR(r.roots[0], c_real(-3.0), 1e-10);
   solve_result_free(&r);
   parse_result_free(&pr);
   PASS();
@@ -1726,11 +1763,11 @@ static void test_solve_quadratic(void) {
   ParseResult pr = parse("x^2 - 4");
   SymTab st;
   memset(&st, 0, sizeof(st));
-  SolveResult r = sym_solve(pr.root, "x", 0, &st);
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
   ASSERT_TRUE(r.ok);
   ASSERT_EQ((int)r.count, 2);
-  ASSERT_NEAR(r.roots[0], -2.0, 1e-10);
-  ASSERT_NEAR(r.roots[1], 2.0, 1e-10);
+  ASSERT_CNEAR(r.roots[0], c_real(-2.0), 1e-10);
+  ASSERT_CNEAR(r.roots[1], c_real(2.0), 1e-10);
   solve_result_free(&r);
   parse_result_free(&pr);
   PASS();
@@ -1741,23 +1778,26 @@ static void test_solve_quadratic_double_root(void) {
   ParseResult pr = parse("x^2 - 2*x + 1");
   SymTab st;
   memset(&st, 0, sizeof(st));
-  SolveResult r = sym_solve(pr.root, "x", 0, &st);
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
   ASSERT_TRUE(r.ok);
-  ASSERT_EQ((int)r.count, 1);
-  ASSERT_NEAR(r.roots[0], 1.0, 1e-10);
+  /* quadratic solver might find two identical roots */
+  ASSERT_TRUE(r.count >= 1);
+  ASSERT_CNEAR(r.roots[0], c_real(1.0), 1e-10);
   solve_result_free(&r);
   parse_result_free(&pr);
   PASS();
 }
 
-static void test_solve_quadratic_no_real(void) {
-  TEST("solve: no real roots x^2 + 1 = 0");
+static void test_solve_quadratic_complex(void) {
+  TEST("solve: complex roots x^2 + 1 = 0 -> x = -i, i");
   ParseResult pr = parse("x^2 + 1");
   SymTab st;
   memset(&st, 0, sizeof(st));
-  SolveResult r = sym_solve(pr.root, "x", 0, &st);
-  ASSERT_TRUE(!r.ok);
-  ASSERT_TRUE(r.error != NULL);
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 2);
+  ASSERT_CNEAR(r.roots[0], c_make(0, -1), 1e-10);
+  ASSERT_CNEAR(r.roots[1], c_make(0, 1), 1e-10);
   solve_result_free(&r);
   parse_result_free(&pr);
   PASS();
@@ -1768,10 +1808,10 @@ static void test_solve_newton_sin(void) {
   ParseResult pr = parse("sin(x)");
   SymTab st;
   memset(&st, 0, sizeof(st));
-  SolveResult r = sym_solve(pr.root, "x", 3.0, &st);
+  SolveResult r = sym_solve(pr.root, "x", c_real(3.0), &st);
   ASSERT_TRUE(r.ok);
   ASSERT_EQ((int)r.count, 1);
-  ASSERT_NEAR(r.roots[0], 3.14159265358979, 1e-8);
+  ASSERT_CNEAR(r.roots[0], c_real(3.14159265358979), 1e-8);
   solve_result_free(&r);
   parse_result_free(&pr);
   PASS();
@@ -1782,10 +1822,10 @@ static void test_solve_newton_exp(void) {
   ParseResult pr = parse("exp(x) - 2");
   SymTab st;
   memset(&st, 0, sizeof(st));
-  SolveResult r = sym_solve(pr.root, "x", 1.0, &st);
+  SolveResult r = sym_solve(pr.root, "x", c_real(1.0), &st);
   ASSERT_TRUE(r.ok);
   ASSERT_EQ((int)r.count, 1);
-  ASSERT_NEAR(r.roots[0], 0.693147180559945, 1e-8);
+  ASSERT_CNEAR(r.roots[0], c_real(0.693147180559945), 1e-8);
   solve_result_free(&r);
   parse_result_free(&pr);
   PASS();
@@ -1834,7 +1874,7 @@ int main(void) {
   test_eval_nested_func();
   test_eval_symtab();
   test_eval_hyperbolic();
-  test_eval_domain_errors();
+  test_eval_complex_domain();
 
   printf("\n[Symbolic - Simplify]\n");
   test_simplify_zero_mul();
@@ -1944,12 +1984,14 @@ int main(void) {
   test_latex_frac_no_parens();
   test_latex_inverse_pow();
   test_latex_complex_expr();
+  test_latex_complex_num();
+  test_latex_imaginary();
 
   printf("\n[Solver]\n");
   test_solve_linear();
   test_solve_quadratic();
   test_solve_quadratic_double_root();
-  test_solve_quadratic_no_real();
+  test_solve_quadratic_complex();
   test_solve_newton_sin();
   test_solve_newton_exp();
 

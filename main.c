@@ -33,11 +33,38 @@ static void print_error(const char *msg) {
     fprintf(stderr, "error: %s\n", msg);
 }
 
-static void format_number(char *buf, size_t size, double v) {
-  if (v == (long long)v && fabs(v) < 1e15)
-    snprintf(buf, size, "%lld", (long long)v);
-  else
-    snprintf(buf, size, "%g", v);
+static void format_number(char *buf, size_t size, Complex z) {
+  if (fabs(z.im) < 1e-15) {
+    double v = z.re;
+    if (v == (long long)v && fabs(v) < 1e15)
+      snprintf(buf, size, "%lld", (long long)v);
+    else
+      snprintf(buf, size, "%g", v);
+  } else if (fabs(z.re) < 1e-15) {
+    if (z.im == 1.0)
+      snprintf(buf, size, "i");
+    else if (z.im == -1.0)
+      snprintf(buf, size, "-i");
+    else if (z.im == (long long)z.im && fabs(z.im) < 1e15)
+      snprintf(buf, size, "%lldi", (long long)z.im);
+    else
+      snprintf(buf, size, "%gi", z.im);
+  } else {
+    char im_buf[32];
+    double aim = fabs(z.im);
+    if (aim == 1.0)
+      snprintf(im_buf, sizeof im_buf, "i");
+    else if (aim == (long long)aim && aim < 1e15)
+      snprintf(im_buf, sizeof im_buf, "%lldi", (long long)aim);
+    else
+      snprintf(im_buf, sizeof im_buf, "%gi", aim);
+
+    if (z.re == (long long)z.re && fabs(z.re) < 1e15)
+      snprintf(buf, size, "%lld %c %s", (long long)z.re, z.im > 0 ? '+' : '-',
+               im_buf);
+    else
+      snprintf(buf, size, "%g %c %s", z.re, z.im > 0 ? '+' : '-', im_buf);
+  }
 }
 
 static void output_result(const AstNode *node, const char *plain,
@@ -139,10 +166,10 @@ static AstNode *substitute_vars(AstNode *node, const SymTab *st) {
 
   case AST_VARIABLE: {
     /* scalar value first */
-    double val;
+    Complex val;
     if (!late_binding_mode && symtab_get(st, node->as.variable, &val)) {
       ast_free(node);
-      return ast_number(val);
+      return ast_complex(val.re, val.im);
     }
     /* stored expression (eg: matrix) */
     AstNode *expr = symtab_get_expr(st, node->as.variable);
@@ -345,7 +372,7 @@ static Matrix *eval_matrix_expr(const AstNode *node) {
     Matrix *m = eval_matrix_expr(node->as.unary.operand);
     if (!m)
       return NULL;
-    Matrix *r = matrix_scale(m, -1.0);
+    Matrix *r = matrix_scale(m, c_real(-1.0));
     matrix_free(m);
     return r;
   }
@@ -689,7 +716,7 @@ static int process_input(const char *input, int batch_mode) {
       AstNode *expr =
           substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
       const char *var = pr.root->as.call.args[1]->as.variable;
-      double x0 = 0.0;
+      Complex x0 = c_real(0.0);
       if (pr.root->as.call.nargs == 3) {
         EvalResult er = eval(pr.root->as.call.args[2], &global_symtab);
         if (er.ok)

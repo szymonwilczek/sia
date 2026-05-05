@@ -5,13 +5,13 @@
 #include "symtab.h"
 
 typedef struct {
-  double *roots;
+  Complex *roots;
   size_t count;
   int ok;
   char *error;
 } SolveResult;
 
-SolveResult sym_solve(const AstNode *expr, const char *var, double x0,
+SolveResult sym_solve(const AstNode *expr, const char *var, Complex x0,
                       const SymTab *st);
 void solve_result_free(SolveResult *r);
 

@@ -28,9 +28,13 @@ static int node_compare(const AstNode *a, const AstNode *b) {
 
   switch (a->type) {
   case AST_NUMBER:
-    if (a->as.number < b->as.number)
+    if (a->as.number.re < b->as.number.re)
       return -1;
-    if (a->as.number > b->as.number)
+    if (a->as.number.re > b->as.number.re)
+      return 1;
+    if (a->as.number.im < b->as.number.im)
+      return -1;
+    if (a->as.number.im > b->as.number.im)
       return 1;
     return 0;
   case AST_VARIABLE:

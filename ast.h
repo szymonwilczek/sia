@@ -1,6 +1,7 @@
 #ifndef SIA_AST_H
 #define SIA_AST_H
 
+#include "complex.h"
 #include "matrix.h"
 #include <stddef.h>
 
@@ -20,7 +21,7 @@ typedef struct AstNode AstNode;
 struct AstNode {
   AstType type;
   union {
-    double number;
+    Complex number;
 
     char *variable;
 
@@ -49,6 +50,7 @@ struct AstNode {
 };
 
 AstNode *ast_number(double val);
+AstNode *ast_complex(double re, double im);
 AstNode *ast_variable(const char *name, size_t len);
 AstNode *ast_binop(BinOpKind op, AstNode *left, AstNode *right);
 AstNode *ast_unary_neg(AstNode *operand);

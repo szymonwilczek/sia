@@ -7,10 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-static SolveResult ok_roots(double *roots, size_t count) {
+static SolveResult ok_roots(Complex *roots, size_t count) {
   SolveResult r;
-  r.roots = malloc(count * sizeof(double));
-  memcpy(r.roots, roots, count * sizeof(double));
+  r.roots = malloc(count * sizeof(Complex));
+  memcpy(r.roots, roots, count * sizeof(Complex));
   r.count = count;
   r.ok = 1;
   r.error = NULL;
@@ -35,8 +35,8 @@ void solve_result_free(SolveResult *r) {
   r->ok = 0;
 }
 
-static double eval_at(const AstNode *expr, const char *var, double val,
-                      const SymTab *st) {
+static Complex eval_at(const AstNode *expr, const char *var, Complex val,
+                       const SymTab *st) {
   SymTab local;
   memcpy(&local, st, sizeof(SymTab));
 
@@ -60,9 +60,9 @@ static double eval_at(const AstNode *expr, const char *var, double val,
 
   if (!er.ok) {
     eval_result_free(&er);
-    return NAN;
+    return c_make(NAN, NAN);
   }
-  double v = er.value;
+  Complex v = er.value;
   eval_result_free(&er);
   return v;
 }
@@ -73,9 +73,9 @@ static double eval_at(const AstNode *expr, const char *var, double val,
  * Returns degree, or -1 on failure. Fills coeffs[0..degree].
  */
 static int extract_poly_coeffs(const AstNode *expr, const char *var,
-                               double *coeffs, int max_degree) {
+                               Complex *coeffs, int max_degree) {
   for (int i = 0; i <= max_degree; i++)
-    coeffs[i] = 0;
+    coeffs[i] = c_real(0.0);
 
   AstNode *expanded = sym_expand(ast_clone(expr));
   expanded = ast_canonicalize(expanded);
@@ -102,18 +102,18 @@ static int extract_poly_coeffs(const AstNode *expr, const char *var,
       continue;
     }
 
-    double coeff = 1.0;
+    Complex coeff = c_real(1.0);
     int degree = 0;
     const AstNode *term = n;
 
     /* handle unary neg */
     if (term->type == AST_UNARY_NEG) {
-      coeff = -1.0;
+      coeff = c_real(-1.0);
       term = term->as.unary.operand;
     }
 
     if (term->type == AST_NUMBER) {
-      coeffs[0] += coeff * term->as.number;
+      coeffs[0] = c_add(coeffs[0], c_mul(coeff, term->as.number));
       continue;
     }
 
@@ -122,7 +122,7 @@ static int extract_poly_coeffs(const AstNode *expr, const char *var,
         ast_free(expanded);
         return -1;
       }
-      coeffs[1] += coeff;
+      coeffs[1] = c_add(coeffs[1], coeff);
       continue;
     }
 
@@ -132,10 +132,10 @@ static int extract_poly_coeffs(const AstNode *expr, const char *var,
       const AstNode *right = term->as.binop.right;
 
       if (left->type == AST_NUMBER) {
-        coeff *= left->as.number;
+        coeff = c_mul(coeff, left->as.number);
         term = right;
       } else if (right->type == AST_NUMBER) {
-        coeff *= right->as.number;
+        coeff = c_mul(coeff, right->as.number);
         term = left;
       }
     }
@@ -146,7 +146,7 @@ static int extract_poly_coeffs(const AstNode *expr, const char *var,
         ast_free(expanded);
         return -1;
       }
-      coeffs[1] += coeff;
+      coeffs[1] = c_add(coeffs[1], coeff);
       continue;
     }
 
@@ -154,14 +154,15 @@ static int extract_poly_coeffs(const AstNode *expr, const char *var,
     if (term->type == AST_BINOP && term->as.binop.op == OP_POW &&
         term->as.binop.left->type == AST_VARIABLE &&
         strcmp(term->as.binop.left->as.variable, var) == 0 &&
-        term->as.binop.right->type == AST_NUMBER) {
-      degree = (int)term->as.binop.right->as.number;
+        term->as.binop.right->type == AST_NUMBER &&
+        c_is_real(term->as.binop.right->as.number)) {
+      degree = (int)term->as.binop.right->as.number.re;
       if (degree < 0 || degree > max_degree ||
-          degree != (int)term->as.binop.right->as.number) {
+          (double)degree != term->as.binop.right->as.number.re) {
         ast_free(expanded);
         return -1;
       }
-      coeffs[degree] += coeff;
+      coeffs[degree] = c_add(coeffs[degree], coeff);
       continue;
     }
 
@@ -174,8 +175,9 @@ static int extract_poly_coeffs(const AstNode *expr, const char *var,
     /* constant term (variable/expression not containing var) */
     SymTab empty;
     memset(&empty, 0, sizeof(empty));
-    coeffs[0] += coeff * eval_at(term, var, 0, &empty);
-    if (isnan(coeffs[0])) {
+    Complex val = eval_at(term, var, c_real(0), &empty);
+    coeffs[0] = c_add(coeffs[0], c_mul(coeff, val));
+    if (isnan(coeffs[0].re)) {
       ast_free(expanded);
       return -1;
     }
@@ -185,7 +187,7 @@ static int extract_poly_coeffs(const AstNode *expr, const char *var,
 
   int deg = 0;
   for (int i = max_degree; i >= 0; i--) {
-    if (coeffs[i] != 0) {
+    if (!c_is_zero(coeffs[i])) {
       deg = i;
       break;
     }
@@ -193,74 +195,72 @@ static int extract_poly_coeffs(const AstNode *expr, const char *var,
   return deg;
 }
 
-static SolveResult solve_linear(double a, double b) {
-  if (a == 0) {
-    if (b == 0)
+static SolveResult solve_linear(Complex a, Complex b) {
+  if (c_is_zero(a)) {
+    if (c_is_zero(b))
       return fail("infinitely many solutions");
     return fail("no solution (contradiction)");
   }
-  double root = -b / a;
+  Complex root = c_div(c_neg(b), a);
   return ok_roots(&root, 1);
 }
 
-static SolveResult solve_quadratic(double a, double b, double c) {
-  double disc = b * b - 4 * a * c;
-  if (disc < -1e-12)
-    return fail("no real roots (discriminant < 0)");
+static SolveResult solve_quadratic(Complex a, Complex b, Complex c) {
+  /* roots = (-b +/- sqrt(b^2 - 4ac)) / 2a */
+  Complex b2 = c_mul(b, b);
+  Complex four_ac = c_mul(c_real(4.0), c_mul(a, c));
+  Complex disc = c_sub(b2, four_ac);
+  Complex sq = c_sqrt(disc);
 
-  if (fabs(disc) < 1e-12) {
-    double root = -b / (2 * a);
-    return ok_roots(&root, 1);
-  }
+  Complex two_a = c_mul(c_real(2.0), a);
+  Complex roots[2];
+  roots[0] = c_div(c_sub(c_neg(b), sq), two_a);
+  roots[1] = c_div(c_add(c_neg(b), sq), two_a);
 
-  double sq = sqrt(disc);
-  double roots[2];
-  roots[0] = (-b - sq) / (2 * a);
-  roots[1] = (-b + sq) / (2 * a);
   return ok_roots(roots, 2);
 }
 
 static SolveResult solve_newton(const AstNode *f, const AstNode *df,
-                                const char *var, double x0, const SymTab *st) {
-  double x = x0;
+                                const char *var, Complex x0, const SymTab *st) {
+  Complex x = x0;
   for (int i = 0; i < 200; i++) {
-    double fv = eval_at(f, var, x, st);
-    if (isnan(fv))
+    Complex fv = eval_at(f, var, x, st);
+    if (isnan(fv.re))
       return fail("evaluation error during Newton iteration");
 
-    if (fabs(fv) < 1e-12) {
+    if (c_abs(fv) < 1e-12) {
       return ok_roots(&x, 1);
     }
 
-    double dfv = eval_at(df, var, x, st);
-    if (isnan(dfv) || fabs(dfv) < 1e-15)
+    Complex dfv = eval_at(df, var, x, st);
+    if (isnan(dfv.re) || c_abs(dfv) < 1e-15)
       return fail("derivative zero or undefined during Newton iteration");
 
-    x = x - fv / dfv;
+    x = c_sub(x, c_div(fv, dfv));
 
-    if (isinf(x))
+    if (isinf(x.re) || isinf(x.im))
       return fail("Newton iteration diverged");
   }
 
-  double fv = eval_at(f, var, x, st);
-  if (fabs(fv) < 1e-8) {
+  Complex fv = eval_at(f, var, x, st);
+  if (c_abs(fv) < 1e-8) {
     return ok_roots(&x, 1);
   }
 
   return fail("Newton method did not converge (try different initial guess)");
 }
 
-SolveResult sym_solve(const AstNode *expr, const char *var, double x0,
+SolveResult sym_solve(const AstNode *expr, const char *var, Complex x0,
                       const SymTab *st) {
   if (!expr || !var)
     return fail("null expression or variable");
 
   /* try polynomial extraction up to degree 2 */
-  double coeffs[3];
+  Complex coeffs[3];
   int deg = extract_poly_coeffs(expr, var, coeffs, 2);
 
   if (deg == 0) {
-    if (coeffs[0] == 0)
+    if (c_is_zero(coeffs[0]))
       return fail("expression is identically zero");
     return fail("no solution (constant non-zero expression)");
   }

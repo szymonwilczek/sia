@@ -62,7 +62,7 @@ static SymEntry *create_entry(SymTab *st, const char *name) {
   if (!e)
     abort();
   e->name = strdup(name);
-  e->value = 0.0;
+  e->value = c_real(0.0);
   e->expr = NULL;
   e->params = NULL;
   e->num_params = 0;
@@ -72,7 +72,7 @@ static SymEntry *create_entry(SymTab *st, const char *name) {
   return e;
 }
 
-void symtab_set(SymTab *st, const char *name, double value) {
+void symtab_set(SymTab *st, const char *name, Complex value) {
   SymEntry *e = create_entry(st, name);
   e->value = value;
 }
@@ -80,7 +80,7 @@ void symtab_set(SymTab *st, const char *name, double value) {
 void symtab_set_expr(SymTab *st, const char *name, AstNode *expr) {
   SymEntry *e = create_entry(st, name);
   e->expr = expr;
-  e->value = 0.0;
+  e->value = c_real(0.0);
 }
 
 void symtab_set_func(SymTab *st, const char *name, char **params,
@@ -89,10 +89,10 @@ void symtab_set_func(SymTab *st, const char *name, char **params,
   e->expr = expr;
   e->params = params;
   e->num_params = num_params;
-  e->value = 0.0;
+  e->value = c_real(0.0);
 }
 
-int symtab_get(const SymTab *st, const char *name, double *out) {
+int symtab_get(const SymTab *st, const char *name, Complex *out) {
   SymEntry *e = find(st, name);
   if (!e || e->expr)
     return 0;

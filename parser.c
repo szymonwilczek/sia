@@ -34,89 +34,63 @@ static int expect(Parser *p, TokenType type) {
 static AstNode *parse_expr(Parser *p);
 
 static AstNode *parse_matrix(Parser *p) {
-  /* parse [[e00, e01, ...], [e10, e11, ...], ...] */
+  /* parse [e00, e01; e10, e11] style matrices */
   AstNode *data[256];
   size_t total_parsed = 0;
   size_t rows = 0, cols = 0;
+  size_t current_row_cols = 0;
 
-  /* outer [ already consumed; expect inner rows */
-  if (!match(p, TOK_LBRACKET)) {
-    set_error(p, "expected '[' for matrix row");
-    return NULL;
-  }
-
-  while (match(p, TOK_LBRACKET)) {
-    advance(p); /* consume '[' */
-    size_t row_cols = 0;
-
-    /* parse first element - any expression is legal */
+  while (!match(p, TOK_RBRACKET) && !match(p, TOK_EOF)) {
     AstNode *elem = parse_expr(p);
     if (!elem)
       goto cleanup;
-    data[rows * 16 + row_cols] = elem;
-    total_parsed++;
-    row_cols++;
 
-    while (match(p, TOK_COMMA)) {
+    if (total_parsed >= 256) {
+      set_error(p, "matrix too large (max 256 elements)");
+      ast_free(elem);
+      goto cleanup;
+    }
+
+    data[total_parsed++] = elem;
+    current_row_cols++;
+
+    if (match(p, TOK_COMMA)) {
       advance(p);
-      if (row_cols >= 16) {
-        set_error(p, "matrix row too wide (max 16 columns)");
+    } else if (match(p, TOK_SEMICOLON) || match(p, TOK_RBRACKET)) {
+      if (rows == 0) {
+        cols = current_row_cols;
+      } else if (current_row_cols != cols) {
+        set_error(p, "matrix rows must have equal number of columns");
         goto cleanup;
       }
-      elem = parse_expr(p);
-      if (!elem)
-        goto cleanup;
-      data[rows * 16 + row_cols] = elem;
-      total_parsed++;
-      row_cols++;
-    }
-
-    if (!expect(p, TOK_RBRACKET))
-      goto cleanup;
-
-    if (rows == 0) {
-      cols = row_cols;
-    } else if (row_cols != cols) {
-      set_error(p, "matrix rows must have equal number of columns");
+      rows++;
+      current_row_cols = 0;
+      if (match(p, TOK_SEMICOLON))
+        advance(p);
+    } else {
+      set_error(p, "expected ',' or ';' or ']' in matrix");
       goto cleanup;
     }
-    rows++;
-
-    if (rows >= 16) {
-      set_error(p, "matrix too tall (max 16 rows)");
-      goto cleanup;
-    }
-
-    /* optional comma between rows */
-    if (match(p, TOK_COMMA))
-      advance(p);
   }
 
   if (!expect(p, TOK_RBRACKET))
     goto cleanup;
+
+  if (rows == 0 && current_row_cols > 0) {
+    rows = 1;
+    cols = current_row_cols;
+  }
 
   if (rows == 0) {
     set_error(p, "empty matrix");
     goto cleanup;
   }
 
-  {
-    /* pack into contiguous array */
-    AstNode **elements = malloc(rows * cols * sizeof(AstNode *));
-    for (size_t r = 0; r < rows; r++)
-      for (size_t c = 0; c < cols; c++)
-        elements[r * cols + c] = data[r * 16 + c];
-
-    AstNode *result = ast_matrix(elements, rows, cols);
-    free(elements);
-    return result;
-  }
+  AstNode **final_data = malloc(total_parsed * sizeof(AstNode *));
+  memcpy(final_data, data, total_parsed * sizeof(AstNode *));
+  return ast_matrix(final_data, rows, cols);
 
 cleanup:
-  /* free all elements parsed so far */
-  for (size_t i = 0; i < rows; i++)
-    for (size_t j = 0; j < cols; j++)
-      ast_free(data[i * 16 + j]);
   /* free partial row in progress (total_parsed > rows*cols means partial) */
   if (total_parsed > rows * cols) {
     size_t partial = total_parsed - rows * cols;
@@ -140,6 +114,10 @@ static AstNode *parse_primary(Parser *p) {
     const char *name = p->current.start;
     size_t len = p->current.length;
     advance(p);
+
+    if (len == 1 && name[0] == 'i') {
+      return ast_complex(0.0, 1.0);
+    }
 
     if (match(p, TOK_LPAREN)) {
       advance(p);
@@ -200,7 +178,7 @@ static AstNode *parse_primary(Parser *p) {
     if (!operand)
       return NULL;
     if (operand->type == AST_NUMBER) {
-      operand->as.number = -operand->as.number;
+      operand->as.number = c_neg(operand->as.number);
       return operand;
     }
     return ast_unary_neg(operand);
@@ -245,9 +223,16 @@ static AstNode *parse_factor(Parser *p) {
   if (!left)
     return NULL;
 
-  while (match(p, TOK_STAR) || match(p, TOK_SLASH)) {
-    BinOpKind op = match(p, TOK_STAR) ? OP_MUL : OP_DIV;
-    advance(p);
+  while (match(p, TOK_STAR) || match(p, TOK_SLASH) || match(p, TOK_IDENT) ||
+         match(p, TOK_LPAREN) || match(p, TOK_LBRACKET)) {
+    BinOpKind op = OP_MUL;
+    if (match(p, TOK_STAR)) {
+      advance(p);
+    } else if (match(p, TOK_SLASH)) {
+      op = OP_DIV;
+      advance(p);
+    }
+
     AstNode *right = parse_power(p);
     if (!right) {
       ast_free(left);

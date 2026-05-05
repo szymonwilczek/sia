@@ -5,7 +5,8 @@
 #include <string.h>
 
 static int is_number(const AstNode *n, double v) {
-  return n && n->type == AST_NUMBER && n->as.number == v;
+  return n && n->type == AST_NUMBER && c_is_real(n->as.number) &&
+         n->as.number.re == v;
 }
 
 static int is_num(const AstNode *n) { return n && n->type == AST_NUMBER; }
@@ -65,7 +66,8 @@ static int ast_equal(const AstNode *a, const AstNode *b) {
 
   switch (a->type) {
   case AST_NUMBER:
-    return a->as.number == b->as.number;
+    return a->as.number.re == b->as.number.re &&
+           a->as.number.im == b->as.number.im;
   case AST_VARIABLE:
     return strcmp(a->as.variable, b->as.variable) == 0;
   case AST_BINOP:
@@ -114,9 +116,9 @@ AstNode *sym_simplify(AstNode *node) {
   case AST_UNARY_NEG:
     node->as.unary.operand = sym_simplify(node->as.unary.operand);
     if (is_num(node->as.unary.operand)) {
-      double v = -node->as.unary.operand->as.number;
+      Complex z = c_neg(node->as.unary.operand->as.number);
       ast_free(node);
-      return ast_number(v);
+      return ast_complex(z.re, z.im);
     }
     /* -(-x) -> x */
     if (node->as.unary.operand->type == AST_UNARY_NEG) {
@@ -157,30 +159,30 @@ AstNode *sym_simplify(AstNode *node) {
 
   /* constant folding */
   if (is_num(L) && is_num(R)) {
-    double result;
+    Complex result;
     switch (op) {
     case OP_ADD:
-      result = L->as.number + R->as.number;
+      result = c_add(L->as.number, R->as.number);
       break;
     case OP_SUB:
-      result = L->as.number - R->as.number;
+      result = c_sub(L->as.number, R->as.number);
       break;
     case OP_MUL:
-      result = L->as.number * R->as.number;
+      result = c_mul(L->as.number, R->as.number);
       break;
     case OP_DIV:
-      if (R->as.number == 0.0)
+      if (c_is_zero(R->as.number))
         return node;
-      result = L->as.number / R->as.number;
+      result = c_div(L->as.number, R->as.number);
       break;
     case OP_POW:
-      result = pow(L->as.number, R->as.number);
+      result = c_pow(L->as.number, R->as.number);
       break;
     default:
       return node;
     }
     ast_free(node);
-    return ast_number(result);
+    return ast_complex(result.re, result.im);
   }
 
   switch (op) {
@@ -206,29 +208,30 @@ AstNode *sym_simplify(AstNode *node) {
         is_num(L->as.binop.left) && R->type == AST_BINOP &&
         R->as.binop.op == OP_MUL && is_num(R->as.binop.left) &&
         ast_equal(L->as.binop.right, R->as.binop.right)) {
-      double c = L->as.binop.left->as.number + R->as.binop.left->as.number;
+      Complex c =
+          c_add(L->as.binop.left->as.number, R->as.binop.left->as.number);
       AstNode *base = ast_clone(L->as.binop.right);
       ast_free(node);
-      return sym_simplify(ast_binop(OP_MUL, ast_number(c), base));
+      return sym_simplify(ast_binop(OP_MUL, ast_complex(c.re, c.im), base));
     }
     /* c1*E + E -> (c1+1)*E */
     if (L->type == AST_BINOP && L->as.binop.op == OP_MUL &&
         is_num(L->as.binop.left) && ast_equal(L->as.binop.right, R)) {
-      double c = L->as.binop.left->as.number + 1.0;
+      Complex c = c_add(L->as.binop.left->as.number, c_real(1.0));
       node->as.binop.right = NULL;
       AstNode *base = L->as.binop.right;
       L->as.binop.right = NULL;
       ast_free(node);
-      return sym_simplify(ast_binop(OP_MUL, ast_number(c), base));
+      return sym_simplify(ast_binop(OP_MUL, ast_complex(c.re, c.im), base));
     }
     /* E + c*E -> (c+1)*E */
     if (R->type == AST_BINOP && R->as.binop.op == OP_MUL &&
         is_num(R->as.binop.left) && ast_equal(L, R->as.binop.right)) {
-      double c = R->as.binop.left->as.number + 1.0;
+      Complex c = c_add(R->as.binop.left->as.number, c_real(1.0));
       node->as.binop.left = NULL;
       AstNode *base = ast_clone(L);
       ast_free(node);
-      return sym_simplify(ast_binop(OP_MUL, ast_number(c), base));
+      return sym_simplify(ast_binop(OP_MUL, ast_complex(c.re, c.im), base));
     }
     /* sin(u)^2 + cos(u)^2 -> 1 */
     if (is_call1_squared(L, "sin") && is_call1_squared(R, "cos") &&
@@ -327,11 +330,11 @@ AstNode *sym_simplify(AstNode *node) {
     /* c1 * (c2 * E) -> (c1*c2) * E */
     if (is_num(L) && R->type == AST_BINOP && R->as.binop.op == OP_MUL &&
         is_num(R->as.binop.left)) {
-      double c = L->as.number * R->as.binop.left->as.number;
+      Complex c = c_mul(L->as.number, R->as.binop.left->as.number);
       AstNode *base = R->as.binop.right;
       R->as.binop.right = NULL;
       ast_free(node);
-      return sym_simplify(ast_binop(OP_MUL, ast_number(c), base));
+      return sym_simplify(ast_binop(OP_MUL, ast_complex(c.re, c.im), base));
     }
     /* x * x -> x^2 */
     if (ast_equal(L, R)) {
@@ -458,12 +461,12 @@ AstNode *sym_simplify(AstNode *node) {
       return sym_simplify(a);
     }
     /* (c1 * E) / c2 -> (c1/c2) * E when both constants */
-    if (is_num(R) && R->as.number != 0.0 && L->type == AST_BINOP &&
+    if (is_num(R) && !c_is_zero(R->as.number) && L->type == AST_BINOP &&
         L->as.binop.op == OP_MUL && is_num(L->as.binop.left)) {
-      double c = L->as.binop.left->as.number / R->as.number;
+      Complex c = c_div(L->as.binop.left->as.number, R->as.number);
       AstNode *base = ast_clone(L->as.binop.right);
       ast_free(node);
-      return sym_simplify(ast_binop(OP_MUL, ast_number(c), base));
+      return sym_simplify(ast_binop(OP_MUL, ast_complex(c.re, c.im), base));
     }
     /* sin(u) / cos(u) -> tan(u) */
     if (is_call1(L, "sin") && is_call1(R, "cos") &&
@@ -548,14 +551,14 @@ AstNode *sym_collect_terms(AstNode *expr) {
     if (!terms[i])
       continue;
 
-    double c_i = 1.0;
+    Complex c_i = c_real(1.0);
     AstNode *b_i = terms[i];
     if (b_i->type == AST_BINOP && b_i->as.binop.op == OP_MUL &&
         b_i->as.binop.left->type == AST_NUMBER) {
       c_i = b_i->as.binop.left->as.number;
       b_i = b_i->as.binop.right;
       if (b_i->type == AST_NUMBER) {
-        c_i *= b_i->as.number;
+        c_i = c_mul(c_i, b_i->as.number);
         b_i = NULL;
       }
     } else if (b_i->type == AST_NUMBER) {
@@ -567,14 +570,14 @@ AstNode *sym_collect_terms(AstNode *expr) {
       if (!terms[j])
         continue;
 
-      double c_j = 1.0;
+      Complex c_j = c_real(1.0);
       AstNode *b_j = terms[j];
       if (b_j->type == AST_BINOP && b_j->as.binop.op == OP_MUL &&
           b_j->as.binop.left->type == AST_NUMBER) {
         c_j = b_j->as.binop.left->as.number;
         b_j = b_j->as.binop.right;
         if (b_j->type == AST_NUMBER) {
-          c_j *= b_j->as.number;
+          c_j = c_mul(c_j, b_j->as.number);
           b_j = NULL;
         }
       } else if (b_j->type == AST_NUMBER) {
@@ -589,7 +592,7 @@ AstNode *sym_collect_terms(AstNode *expr) {
         eq = 1;
 
       if (eq) {
-        c_i += c_j;
+        c_i = c_add(c_i, c_j);
         ast_free(terms[j]);
         terms[j] = NULL;
       }
@@ -598,18 +601,18 @@ AstNode *sym_collect_terms(AstNode *expr) {
     AstNode *cloned_b_i = b_i ? ast_clone(b_i) : NULL;
     ast_free(terms[i]);
     if (cloned_b_i) {
-      if (c_i == 0.0) {
+      if (c_is_zero(c_i)) {
         ast_free(cloned_b_i);
         terms[i] = ast_number(0);
-      } else if (c_i == 1.0) {
+      } else if (c_is_real(c_i) && c_i.re == 1.0) {
         terms[i] = cloned_b_i;
-      } else if (c_i == -1.0) {
+      } else if (c_is_real(c_i) && c_i.re == -1.0) {
         terms[i] = sym_simplify(ast_unary_neg(cloned_b_i));
       } else {
-        terms[i] = ast_binop(OP_MUL, ast_number(c_i), cloned_b_i);
+        terms[i] = ast_binop(OP_MUL, ast_complex(c_i.re, c_i.im), cloned_b_i);
       }
     } else {
-      terms[i] = ast_number(c_i);
+      terms[i] = ast_complex(c_i.re, c_i.im);
     }
   }
 
@@ -618,15 +621,15 @@ AstNode *sym_collect_terms(AstNode *expr) {
   for (size_t i = 0; i < count; i++) {
     if (!terms[i])
       continue;
-    double c_i = 1.0;
+    Complex c_i = c_real(1.0);
     AstNode *base_i = terms[i];
     for (;;) {
       if (base_i->type == AST_BINOP && base_i->as.binop.op == OP_MUL &&
           base_i->as.binop.left->type == AST_NUMBER) {
-        c_i *= base_i->as.binop.left->as.number;
+        c_i = c_mul(c_i, base_i->as.binop.left->as.number);
         base_i = base_i->as.binop.right;
       } else if (base_i->type == AST_UNARY_NEG) {
-        c_i *= -1;
+        c_i = c_neg(c_i);
         base_i = base_i->as.unary.operand;
       } else {
         break;
@@ -640,15 +643,15 @@ AstNode *sym_collect_terms(AstNode *expr) {
     for (size_t j = i + 1; j < count; j++) {
       if (!terms[j])
         continue;
-      double c_j = 1.0;
+      Complex c_j = c_real(1.0);
       AstNode *base_j = terms[j];
       for (;;) {
         if (base_j->type == AST_BINOP && base_j->as.binop.op == OP_MUL &&
             base_j->as.binop.left->type == AST_NUMBER) {
-          c_j *= base_j->as.binop.left->as.number;
+          c_j = c_mul(c_j, base_j->as.binop.left->as.number);
           base_j = base_j->as.binop.right;
         } else if (base_j->type == AST_UNARY_NEG) {
-          c_j *= -1;
+          c_j = c_neg(c_j);
           base_j = base_j->as.unary.operand;
         } else {
           break;
@@ -664,29 +667,30 @@ AstNode *sym_collect_terms(AstNode *expr) {
       if (!ast_equal(arg_i, arg_j))
         continue;
 
-      if (c_i == c_j) {
+      if (c_i.re == c_j.re && c_i.im == c_j.im) {
         /* c*sin^2(u) + c*cos^2(u) -> c */
         ast_free(terms[i]);
         ast_free(terms[j]);
-        terms[i] = ast_number(c_i);
+        terms[i] = ast_complex(c_i.re, c_i.im);
         terms[j] = NULL;
         break;
       }
 
       /* c*cos^2(u) + (-c)*sin^2(u) -> c*cos(2*u) */
-      double c_cos = i_is_sin ? c_j : c_i;
-      double c_sin = i_is_sin ? c_i : c_j;
-      if (c_cos == -c_sin) {
+      Complex ci_c = i_is_sin ? c_j : c_i;
+      Complex ci_s = i_is_sin ? c_i : c_j;
+      Complex neg_ci_s = c_neg(ci_s);
+      if (ci_c.re == neg_ci_s.re && ci_c.im == neg_ci_s.im) {
         AstNode *two_u = ast_binop(OP_MUL, ast_number(2), ast_clone(arg_i));
         AstNode *cos2u = ast_func_call("cos", 3, (AstNode *[]){two_u}, 1);
         ast_free(terms[i]);
         ast_free(terms[j]);
-        if (c_cos == 1.0) {
+        if (c_is_real(ci_c) && ci_c.re == 1.0) {
           terms[i] = cos2u;
-        } else if (c_cos == -1.0) {
+        } else if (c_is_real(ci_c) && ci_c.re == -1.0) {
           terms[i] = sym_simplify(ast_unary_neg(cos2u));
         } else {
-          terms[i] = ast_binop(OP_MUL, ast_number(c_cos), cos2u);
+          terms[i] = ast_binop(OP_MUL, ast_complex(ci_c.re, ci_c.im), cos2u);
         }
         terms[j] = NULL;
         break;
@@ -695,20 +699,20 @@ AstNode *sym_collect_terms(AstNode *expr) {
   }
 
   /* merge constants that trig reduction may have introduced */
-  double const_sum = 0;
+  Complex const_sum = c_real(0);
   int has_const = 0;
   for (size_t i = 0; i < count; i++) {
     if (terms[i] && terms[i]->type == AST_NUMBER) {
-      const_sum += terms[i]->as.number;
+      const_sum = c_add(const_sum, terms[i]->as.number);
       ast_free(terms[i]);
       terms[i] = NULL;
       has_const = 1;
     }
   }
-  if (has_const && const_sum != 0) {
+  if (has_const && !c_is_zero(const_sum)) {
     for (size_t i = 0; i < count; i++) {
       if (!terms[i]) {
-        terms[i] = ast_number(const_sum);
+        terms[i] = ast_complex(const_sum.re, const_sum.im);
         break;
       }
     }
@@ -818,10 +822,10 @@ AstNode *sym_expand(AstNode *node) {
 
     /* expand (A + B)^n and (A - B)^n for small integers n */
     if (node->as.binop.op == OP_POW && R->type == AST_NUMBER &&
-        L->type == AST_BINOP &&
+        c_is_real(R->as.number) && L->type == AST_BINOP &&
         (L->as.binop.op == OP_ADD || L->as.binop.op == OP_SUB)) {
-      int n = (int)R->as.number;
-      if (n == R->as.number && n >= 2 && n <= 10) {
+      int n = (int)R->as.number.re;
+      if (n == R->as.number.re && n >= 2 && n <= 10) {
         AstNode *res = expand_pow(L, n);
         ast_free(L);
         ast_free(R);
@@ -831,9 +835,9 @@ AstNode *sym_expand(AstNode *node) {
 
     /* expand M^n for matrices */
     if (node->as.binop.op == OP_POW && R->type == AST_NUMBER &&
-        L->type == AST_MATRIX) {
-      int n = (int)R->as.number;
-      if (n == R->as.number && n >= 2 && n <= 10) {
+        c_is_real(R->as.number) && L->type == AST_MATRIX) {
+      int n = (int)R->as.number.re;
+      if (n == R->as.number.re && n >= 2 && n <= 10) {
         AstNode *res = ast_clone(L);
         for (int i = 1; i < n; i++) {
           AstNode *next = sym_matrix_mul(res, L);
@@ -1070,8 +1074,9 @@ static AstNode *integrate_monomial(const AstNode *expr, const char *var) {
 
   /* x^n -> x^(n+1)/(n+1) */
   if (expr->type == AST_BINOP && expr->as.binop.op == OP_POW &&
-      is_var(expr->as.binop.left, var) && is_num(expr->as.binop.right)) {
-    double n = expr->as.binop.right->as.number;
+      is_var(expr->as.binop.left, var) && is_num(expr->as.binop.right) &&
+      c_is_real(expr->as.binop.right->as.number)) {
+    double n = expr->as.binop.right->as.number.re;
     if (n == -1.0) {
       return ast_func_call("ln", 2,
                            (AstNode *[]){ast_variable(var, strlen(var))}, 1);

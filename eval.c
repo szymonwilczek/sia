@@ -4,76 +4,100 @@
 #include <stdlib.h>
 #include <string.h>
 
-static EvalResult ok(double v) {
+static EvalResult ok(Complex v) {
   return (EvalResult){.value = v, .ok = 1, .error = NULL};
 }
 
-static EvalResult fail(const char *msg) {
-  return (EvalResult){.value = 0.0, .ok = 0, .error = strdup(msg)};
+static EvalResult ok_real(double v) {
+  return (EvalResult){.value = c_real(v), .ok = 1, .error = NULL};
 }
 
-static EvalResult eval_call(const char *name, double *args, size_t nargs) {
+static EvalResult fail(const char *msg) {
+  return (EvalResult){.value = c_real(0.0), .ok = 0, .error = strdup(msg)};
+}
+
+static EvalResult eval_call(const char *name, Complex *args, size_t nargs) {
   if (nargs == 1) {
-    double a = args[0];
+    Complex a = args[0];
     if (strcmp(name, "sin") == 0)
-      return ok(sin(a));
+      return ok(c_sin(a));
     if (strcmp(name, "cos") == 0)
-      return ok(cos(a));
+      return ok(c_cos(a));
     if (strcmp(name, "tan") == 0)
-      return ok(tan(a));
-    if (strcmp(name, "asin") == 0) {
-      if (a < -1.0 || a > 1.0)
-        return fail("domain error: asin argument out of [-1, 1]");
-      return ok(asin(a));
-    }
-    if (strcmp(name, "acos") == 0) {
-      if (a < -1.0 || a > 1.0)
-        return fail("domain error: acos argument out of [-1, 1]");
-      return ok(acos(a));
-    }
+      return ok(c_tan(a));
+    if (strcmp(name, "asin") == 0)
+      return ok(c_asin(a));
+    if (strcmp(name, "acos") == 0)
+      return ok(c_acos(a));
     if (strcmp(name, "atan") == 0)
-      return ok(atan(a));
-    if (strcmp(name, "sqrt") == 0) {
-      if (a < 0.0)
-        return fail("domain error: sqrt of negative number");
-      return ok(sqrt(a));
-    }
+      return ok(c_atan(a));
+    if (strcmp(name, "sqrt") == 0)
+      return ok(c_sqrt(a));
     if (strcmp(name, "abs") == 0)
-      return ok(fabs(a));
+      return ok_real(c_abs(a));
     if (strcmp(name, "exp") == 0)
-      return ok(exp(a));
+      return ok(c_exp(a));
     if (strcmp(name, "log") == 0) {
-      if (a <= 0.0)
-        return fail("domain error: log of non-positive number");
-      return ok(log10(a));
+      if (c_is_zero(a))
+        return fail("domain error: log of zero");
+      if (c_is_real(a) && a.re > 0)
+        return ok_real(log10(a.re));
+      Complex r = c_div(c_log(a), c_real(log(10.0)));
+      return ok(r);
     }
     if (strcmp(name, "ln") == 0) {
-      if (a <= 0.0)
-        return fail("domain error: ln of non-positive number");
-      return ok(log(a));
+      if (c_is_zero(a))
+        return fail("domain error: ln of zero");
+      return ok(c_log(a));
     }
-    if (strcmp(name, "ceil") == 0)
-      return ok(ceil(a));
-    if (strcmp(name, "floor") == 0)
-      return ok(floor(a));
-    if (strcmp(name, "round") == 0)
-      return ok(round(a));
+    if (strcmp(name, "ceil") == 0) {
+      if (!c_is_real(a))
+        return fail("ceil requires real argument");
+      return ok_real(ceil(a.re));
+    }
+    if (strcmp(name, "floor") == 0) {
+      if (!c_is_real(a))
+        return fail("floor requires real argument");
+      return ok_real(floor(a.re));
+    }
+    if (strcmp(name, "round") == 0) {
+      if (!c_is_real(a))
+        return fail("round requires real argument");
+      return ok_real(round(a.re));
+    }
     if (strcmp(name, "sinh") == 0)
-      return ok(sinh(a));
+      return ok(c_sinh(a));
     if (strcmp(name, "cosh") == 0)
-      return ok(cosh(a));
+      return ok(c_cosh(a));
     if (strcmp(name, "tanh") == 0)
-      return ok(tanh(a));
+      return ok(c_tanh(a));
+    if (strcmp(name, "Re") == 0 || strcmp(name, "re") == 0)
+      return ok_real(a.re);
+    if (strcmp(name, "Im") == 0 || strcmp(name, "im") == 0)
+      return ok_real(a.im);
+    if (strcmp(name, "conj") == 0)
+      return ok(c_conj(a));
+    if (strcmp(name, "arg") == 0)
+      return ok_real(atan2(a.im, a.re));
   }
   if (nargs == 2) {
-    if (strcmp(name, "atan2") == 0)
-      return ok(atan2(args[0], args[1]));
+    if (strcmp(name, "atan2") == 0) {
+      if (!c_is_real(args[0]) || !c_is_real(args[1]))
+        return fail("atan2 requires real arguments");
+      return ok_real(atan2(args[0].re, args[1].re));
+    }
     if (strcmp(name, "pow") == 0)
-      return ok(pow(args[0], args[1]));
-    if (strcmp(name, "min") == 0)
-      return ok(fmin(args[0], args[1]));
-    if (strcmp(name, "max") == 0)
-      return ok(fmax(args[0], args[1]));
+      return ok(c_pow(args[0], args[1]));
+    if (strcmp(name, "min") == 0) {
+      if (!c_is_real(args[0]) || !c_is_real(args[1]))
+        return fail("min requires real arguments");
+      return ok_real(fmin(args[0].re, args[1].re));
+    }
+    if (strcmp(name, "max") == 0) {
+      if (!c_is_real(args[0]) || !c_is_real(args[1]))
+        return fail("max requires real arguments");
+      return ok_real(fmax(args[0].re, args[1].re));
+    }
   }
 
   char buf[128];
@@ -91,12 +115,14 @@ EvalResult eval(const AstNode *node, const SymTab *st) {
 
   case AST_VARIABLE: {
     if (strcmp(node->as.variable, "pi") == 0)
-      return ok(M_PI);
+      return ok_real(M_PI);
     if (strcmp(node->as.variable, "e") == 0)
-      return ok(M_E);
+      return ok_real(M_E);
+    if (strcmp(node->as.variable, "i") == 0)
+      return ok(c_make(0, 1));
 
     if (st) {
-      double val;
+      Complex val;
       if (symtab_get(st, node->as.variable, &val))
         return ok(val);
     }
@@ -118,17 +144,17 @@ EvalResult eval(const AstNode *node, const SymTab *st) {
 
     switch (node->as.binop.op) {
     case OP_ADD:
-      return ok(l.value + r.value);
+      return ok(c_add(l.value, r.value));
     case OP_SUB:
-      return ok(l.value - r.value);
+      return ok(c_sub(l.value, r.value));
     case OP_MUL:
-      return ok(l.value * r.value);
+      return ok(c_mul(l.value, r.value));
     case OP_DIV:
-      if (r.value == 0.0)
+      if (c_is_zero(r.value))
         return fail("division by zero");
-      return ok(l.value / r.value);
+      return ok(c_div(l.value, r.value));
     case OP_POW:
-      return ok(pow(l.value, r.value));
+      return ok(c_pow(l.value, r.value));
     }
     return fail("unknown operator");
   }
@@ -137,11 +163,11 @@ EvalResult eval(const AstNode *node, const SymTab *st) {
     EvalResult r = eval(node->as.unary.operand, st);
     if (!r.ok)
       return r;
-    return ok(-r.value);
+    return ok(c_neg(r.value));
   }
 
   case AST_FUNC_CALL: {
-    double args[16];
+    Complex args[16];
     for (size_t i = 0; i < node->as.call.nargs; i++) {
       EvalResult a = eval(node->as.call.args[i], st);
       if (!a.ok)

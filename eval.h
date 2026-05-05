@@ -5,7 +5,7 @@
 #include "symtab.h"
 
 typedef struct {
-  double value;
+  Complex value;
   int ok;
   char *error;
 } EvalResult;
