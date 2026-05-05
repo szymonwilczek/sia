@@ -45,6 +45,53 @@ static void output_str(const char *s, int batch_mode) {
 }
 
 /* replace variables in an AST with their stored values/expressions */
+static AstNode *substitute_params(const AstNode *node, char **params,
+                                  AstNode **args, size_t n) {
+  if (!node)
+    return NULL;
+  switch (node->type) {
+  case AST_NUMBER:
+    return ast_clone(node);
+  case AST_VARIABLE: {
+    for (size_t i = 0; i < n; i++) {
+      if (strcmp(node->as.variable, params[i]) == 0) {
+        return ast_clone(args[i]);
+      }
+    }
+    return ast_clone(node);
+  }
+  case AST_UNARY_NEG:
+    return ast_unary_neg(
+        substitute_params(node->as.unary.operand, params, args, n));
+  case AST_BINOP:
+    return ast_binop(node->as.binop.op,
+                     substitute_params(node->as.binop.left, params, args, n),
+                     substitute_params(node->as.binop.right, params, args, n));
+  case AST_FUNC_CALL: {
+    AstNode **new_args = malloc(node->as.call.nargs * sizeof(AstNode *));
+    for (size_t i = 0; i < node->as.call.nargs; i++) {
+      new_args[i] = substitute_params(node->as.call.args[i], params, args, n);
+    }
+    AstNode *c = ast_func_call(node->as.call.name, strlen(node->as.call.name),
+                               new_args, node->as.call.nargs);
+    free(new_args);
+    return c;
+  }
+  case AST_MATRIX: {
+    size_t total = node->as.matrix.rows * node->as.matrix.cols;
+    AstNode **elems = malloc(total * sizeof(AstNode *));
+    for (size_t i = 0; i < total; i++) {
+      elems[i] =
+          substitute_params(node->as.matrix.elements[i], params, args, n);
+    }
+    AstNode *m = ast_matrix(elems, node->as.matrix.rows, node->as.matrix.cols);
+    free(elems);
+    return m;
+  }
+  }
+  return NULL;
+}
+
 static AstNode *substitute_vars(AstNode *node, const SymTab *st) {
   if (!node)
     return NULL;
@@ -87,10 +134,23 @@ static AstNode *substitute_vars(AstNode *node, const SymTab *st) {
     node->as.unary.operand = substitute_vars(node->as.unary.operand, st);
     return node;
 
-  case AST_FUNC_CALL:
+  case AST_FUNC_CALL: {
     for (size_t i = 0; i < node->as.call.nargs; i++)
       node->as.call.args[i] = substitute_vars(node->as.call.args[i], st);
+
+    char **params;
+    size_t num_params;
+    AstNode *body;
+    if (symtab_get_func(st, node->as.call.name, &params, &num_params, &body)) {
+      if (node->as.call.nargs == num_params) {
+        AstNode *res =
+            substitute_params(body, params, node->as.call.args, num_params);
+        ast_free(node);
+        return res;
+      }
+    }
     return node;
+  }
   }
   return node;
 }
@@ -215,7 +275,7 @@ static Matrix *eval_matrix_expr(const AstNode *node) {
 }
 
 static int handle_let(const char *input) {
-  /* "let NAME = EXPR" */
+  /* "let NAME = EXPR" or "let f(x, ...) = EXPR" */
   const char *p = input;
   while (*p == ' ')
     p++;
@@ -226,7 +286,7 @@ static int handle_let(const char *input) {
     p++;
 
   const char *name_start = p;
-  while (*p && *p != ' ' && *p != '=')
+  while (*p && *p != ' ' && *p != '=' && *p != '(')
     p++;
   size_t name_len = (size_t)(p - name_start);
   if (name_len == 0)
@@ -236,10 +296,48 @@ static int handle_let(const char *input) {
   memcpy(name, name_start, name_len);
   name[name_len] = '\0';
 
+  char **params = NULL;
+  size_t num_params = 0;
+
+  if (*p == '(') {
+    p++;
+    size_t cap = 4;
+    params = malloc(cap * sizeof(char *));
+    while (*p && *p != ')') {
+      while (*p == ' ')
+        p++;
+      const char *param_start = p;
+      while (*p && *p != ' ' && *p != ',' && *p != ')')
+        p++;
+      size_t param_len = (size_t)(p - param_start);
+      if (param_len > 0) {
+        if (num_params >= cap) {
+          cap *= 2;
+          params = realloc(params, cap * sizeof(char *));
+        }
+        params[num_params] = malloc(param_len + 1);
+        memcpy(params[num_params], param_start, param_len);
+        params[num_params][param_len] = '\0';
+        num_params++;
+      }
+      while (*p == ' ')
+        p++;
+      if (*p == ',')
+        p++;
+    }
+    if (*p == ')')
+      p++;
+  }
+
   while (*p == ' ')
     p++;
   if (*p != '=') {
     free(name);
+    if (params) {
+      for (size_t i = 0; i < num_params; i++)
+        free(params[i]);
+      free(params);
+    }
     return 0;
   }
   p++;
@@ -251,33 +349,49 @@ static int handle_let(const char *input) {
     print_error(pr.error);
     parse_result_free(&pr);
     free(name);
+    if (params) {
+      for (size_t i = 0; i < num_params; i++)
+        free(params[i]);
+      free(params);
+    }
     return 1;
   }
 
-  EvalResult er = eval(pr.root, &global_symtab);
-  if (er.ok) {
-    symtab_set(&global_symtab, name, er.value);
-    char buf[64];
-    format_number(buf, sizeof buf, er.value);
-    char out[256];
-    snprintf(out, sizeof out, "%s = %s", name, buf);
-    print_bold(out);
-    putchar('\n');
-  } else {
-    /* store as symbolic expression */
-    symtab_set_expr(&global_symtab, name, ast_clone(pr.root));
+  if (params) {
+    symtab_set_func(&global_symtab, name, params, num_params,
+                    ast_clone(pr.root));
     char *s = ast_to_string(pr.root);
     char out[512];
     snprintf(out, sizeof out, "%s = %s", name, s);
     print_bold(out);
     putchar('\n');
     free(s);
+  } else {
+    EvalResult er = eval(pr.root, &global_symtab);
+    if (er.ok) {
+      symtab_set(&global_symtab, name, er.value);
+      char buf[64];
+      format_number(buf, sizeof buf, er.value);
+      char out[256];
+      snprintf(out, sizeof out, "%s = %s", name, buf);
+      print_bold(out);
+      putchar('\n');
+    } else {
+      /* store as symbolic expression */
+      symtab_set_expr(&global_symtab, name, ast_clone(pr.root));
+      char *s = ast_to_string(pr.root);
+      char out[512];
+      snprintf(out, sizeof out, "%s = %s", name, s);
+      print_bold(out);
+      putchar('\n');
+      free(s);
+    }
+    eval_result_free(&er);
   }
 
-  eval_result_free(&er);
   parse_result_free(&pr);
   free(name);
-  return 0;
+  return 1;
 }
 
 static int process_input(const char *input, int batch_mode) {
@@ -405,21 +519,25 @@ static int process_input(const char *input, int batch_mode) {
     parse_result_free(&pr);
     return 0;
   }
-  ast_free(resolved);
 
   /* numeric evaluation */
-  EvalResult er = eval(pr.root, &global_symtab);
-  if (!er.ok) {
-    print_error(er.error);
-    eval_result_free(&er);
-    parse_result_free(&pr);
-    return 1;
+  EvalResult er = eval(resolved, &global_symtab);
+  if (er.ok) {
+    char buf[64];
+    format_number(buf, sizeof buf, er.value);
+    output_str(buf, batch_mode);
+  } else {
+    /* fallback to symbolic simplification */
+    AstNode *simplified = sym_simplify(resolved);
+    char *s = ast_to_string(simplified);
+    output_str(s, batch_mode);
+    free(s);
+    ast_free(simplified);
+    resolved = NULL;
   }
 
-  char buf[64];
-  format_number(buf, sizeof buf, er.value);
-  output_str(buf, batch_mode);
-
+  if (resolved)
+    ast_free(resolved);
   eval_result_free(&er);
   parse_result_free(&pr);
   return 0;
