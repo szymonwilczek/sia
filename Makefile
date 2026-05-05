@@ -1,5 +1,5 @@
-VERSION   := 0.3.5
-CODENAME  := "Canonical Cauchy"
+VERSION   := 0.4.0
+CODENAME  := "Elegant Euler"
 
 CC      ?= gcc
 CFLAGS  := -std=c11 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
