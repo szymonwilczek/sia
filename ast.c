@@ -199,6 +199,14 @@ static void sb_printf(StrBuf *sb, const char *fmt, ...) {
     sb_append(sb, tmp, (size_t)n);
 }
 
+static void sb_append_fraction(StrBuf *sb, Fraction f) {
+  if (f.den == 1) {
+    sb_printf(sb, "%lld", f.num);
+  } else {
+    sb_printf(sb, "%lld/%lld", f.num, f.den);
+  }
+}
+
 static int needs_parens(const AstNode *child, const AstNode *parent,
                         int is_right) {
   if (child->type != AST_BINOP || parent->type != AST_BINOP)
@@ -226,28 +234,49 @@ static void ast_serialize(const AstNode *node, StrBuf *sb,
   switch (node->type) {
   case AST_NUMBER: {
     Complex z = node->as.number;
-    if (z.im == 0.0) {
+    if (z.exact && fraction_is_zero(z.im_q)) {
+      sb_append_fraction(sb, z.re_q);
+    } else if (z.exact) {
+      sb_append(sb, "(", 1);
+      sb_append_fraction(sb, z.re_q);
+      if (z.im_q.num > 0) {
+        sb_append(sb, " + ", 3);
+        if (fraction_is_one(z.im_q))
+          sb_append(sb, "i", 1);
+        else if (z.im_q.den == 1)
+          sb_printf(sb, "%lldi", z.im_q.num);
+        else
+          sb_printf(sb, "%lld/%lldi", z.im_q.num, z.im_q.den);
+      } else {
+        sb_append(sb, " - ", 3);
+        Fraction aim = fraction_neg(z.im_q);
+        if (fraction_is_one(aim))
+          sb_append(sb, "i", 1);
+        else if (aim.den == 1)
+          sb_printf(sb, "%lldi", aim.num);
+        else
+          sb_printf(sb, "%lld/%lldi", aim.num, aim.den);
+      }
+      sb_append(sb, ")", 1);
+    } else if (z.im == 0.0) {
       double v = z.re;
       Fraction f = fraction_from_double(v);
       if (f.den != 1) {
-        sb_printf(sb, "%lld/%lld", f.num, f.den);
+        sb_append_fraction(sb, f);
+      } else if (v == (long long)v && fabs(v) < 1e15) {
+        sb_printf(sb, "%lld", (long long)v);
       } else {
-        if (v == (long long)v && fabs(v) < 1e15)
-          sb_printf(sb, "%lld", (long long)v);
-        else
-          sb_printf(sb, "%g", v);
+        sb_printf(sb, "%g", v);
       }
     } else if (z.re == 0.0) {
       if (z.im == 1.0)
         sb_append(sb, "i", 1);
       else if (z.im == -1.0)
         sb_append(sb, "(-i)", 4);
-      else {
-        if (z.im == (long long)z.im && fabs(z.im) < 1e15)
-          sb_printf(sb, "%lldi", (long long)z.im);
-        else
-          sb_printf(sb, "%gi", z.im);
-      }
+      else if (z.im == (long long)z.im && fabs(z.im) < 1e15)
+        sb_printf(sb, "%lldi", (long long)z.im);
+      else
+        sb_printf(sb, "%gi", z.im);
     } else {
       sb_append(sb, "(", 1);
       if (z.re == (long long)z.re && fabs(z.re) < 1e15)
@@ -255,26 +284,22 @@ static void ast_serialize(const AstNode *node, StrBuf *sb,
       else
         sb_printf(sb, "%g", z.re);
       if (z.im > 0) {
+        sb_append(sb, " + ", 3);
         if (z.im == 1.0)
-          sb_append(sb, " + i", 4);
-        else {
-          sb_append(sb, " + ", 3);
-          if (z.im == (long long)z.im && fabs(z.im) < 1e15)
-            sb_printf(sb, "%lldi", (long long)z.im);
-          else
-            sb_printf(sb, "%gi", z.im);
-        }
+          sb_append(sb, "i", 1);
+        else if (z.im == (long long)z.im && fabs(z.im) < 1e15)
+          sb_printf(sb, "%lldi", (long long)z.im);
+        else
+          sb_printf(sb, "%gi", z.im);
       } else {
-        if (z.im == -1.0)
-          sb_append(sb, " - i", 4);
-        else {
-          sb_append(sb, " - ", 3);
-          double aim = -z.im;
-          if (aim == (long long)aim && fabs(aim) < 1e15)
-            sb_printf(sb, "%lldi", (long long)aim);
-          else
-            sb_printf(sb, "%gi", aim);
-        }
+        sb_append(sb, " - ", 3);
+        double aim = -z.im;
+        if (aim == 1.0)
+          sb_append(sb, "i", 1);
+        else if (aim == (long long)aim && fabs(aim) < 1e15)
+          sb_printf(sb, "%lldi", (long long)aim);
+        else
+          sb_printf(sb, "%gi", aim);
       }
       sb_append(sb, ")", 1);
     }

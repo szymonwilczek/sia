@@ -66,8 +66,7 @@ static int ast_equal(const AstNode *a, const AstNode *b) {
 
   switch (a->type) {
   case AST_NUMBER:
-    return a->as.number.re == b->as.number.re &&
-           a->as.number.im == b->as.number.im;
+    return c_eq(a->as.number, b->as.number);
   case AST_VARIABLE:
     return strcmp(a->as.variable, b->as.variable) == 0;
   case AST_BINOP:
@@ -604,9 +603,9 @@ AstNode *sym_collect_terms(AstNode *expr) {
       if (c_is_zero(c_i)) {
         ast_free(cloned_b_i);
         terms[i] = ast_number(0);
-      } else if (c_is_real(c_i) && c_i.re == 1.0) {
+      } else if (c_is_one(c_i)) {
         terms[i] = cloned_b_i;
-      } else if (c_is_real(c_i) && c_i.re == -1.0) {
+      } else if (c_is_minus_one(c_i)) {
         terms[i] = sym_simplify(ast_unary_neg(cloned_b_i));
       } else {
         terms[i] = ast_binop(OP_MUL, ast_complex(c_i.re, c_i.im), cloned_b_i);
@@ -667,7 +666,7 @@ AstNode *sym_collect_terms(AstNode *expr) {
       if (!ast_equal(arg_i, arg_j))
         continue;
 
-      if (c_i.re == c_j.re && c_i.im == c_j.im) {
+      if (c_eq(c_i, c_j)) {
         /* c*sin^2(u) + c*cos^2(u) -> c */
         ast_free(terms[i]);
         ast_free(terms[j]);
@@ -680,14 +679,14 @@ AstNode *sym_collect_terms(AstNode *expr) {
       Complex ci_c = i_is_sin ? c_j : c_i;
       Complex ci_s = i_is_sin ? c_i : c_j;
       Complex neg_ci_s = c_neg(ci_s);
-      if (ci_c.re == neg_ci_s.re && ci_c.im == neg_ci_s.im) {
+      if (c_eq(ci_c, neg_ci_s)) {
         AstNode *two_u = ast_binop(OP_MUL, ast_number(2), ast_clone(arg_i));
         AstNode *cos2u = ast_func_call("cos", 3, (AstNode *[]){two_u}, 1);
         ast_free(terms[i]);
         ast_free(terms[j]);
-        if (c_is_real(ci_c) && ci_c.re == 1.0) {
+        if (c_is_one(ci_c)) {
           terms[i] = cos2u;
-        } else if (c_is_real(ci_c) && ci_c.re == -1.0) {
+        } else if (c_is_minus_one(ci_c)) {
           terms[i] = sym_simplify(ast_unary_neg(cos2u));
         } else {
           terms[i] = ast_binop(OP_MUL, ast_complex(ci_c.re, ci_c.im), cos2u);

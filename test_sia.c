@@ -82,6 +82,10 @@ static int is_num_node(const AstNode *n, double v) {
          c_abs(c_sub(n->as.number, c_real(v))) < 1e-9;
 }
 
+static int fraction_is(Fraction f, long long num, long long den) {
+  return f.num == num && f.den == den;
+}
+
 /* Lexer*/
 
 static void test_lexer_basic(void) {
@@ -345,6 +349,19 @@ static void test_eval_complex_expr(void) {
   PASS();
 }
 
+static void test_eval_exact_rational(void) {
+  TEST("eval: 1/2 + 1/3 = 5/6");
+  ParseResult r = parse("1/2 + 1/3");
+  EvalResult e = eval(r.root, NULL);
+  ASSERT_TRUE(e.ok);
+  ASSERT_TRUE(e.value.exact);
+  ASSERT_TRUE(fraction_is(e.value.re_q, 5, 6));
+  ASSERT_TRUE(fraction_is_zero(e.value.im_q));
+  eval_result_free(&e);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_eval_div_zero(void) {
   TEST("eval: division by zero error");
   ParseResult r = parse("1/0");
@@ -464,6 +481,75 @@ static void test_simplify_const_fold(void) {
   AstNode *s = sym_simplify(ast_clone(r.root));
   ASSERT_EQ(s->type, AST_NUMBER);
   ASSERT_CNEAR(s->as.number, c_real(6.0), 1e-9);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_fraction_arithmetic(void) {
+  TEST("fraction: exact arithmetic");
+  Fraction half = fraction_make(1, 2);
+  Fraction third = fraction_make(1, 3);
+  ASSERT_TRUE(fraction_eq(fraction_add(half, third), fraction_make(5, 6)));
+  ASSERT_TRUE(fraction_eq(fraction_sub(half, third), fraction_make(1, 6)));
+  ASSERT_TRUE(fraction_eq(fraction_mul(half, third), fraction_make(1, 6)));
+  ASSERT_TRUE(fraction_eq(fraction_div(half, third), fraction_make(3, 2)));
+  PASS();
+}
+
+static void test_complex_exact_arithmetic(void) {
+  TEST("complex: exact rational propagation");
+  Complex left = c_from_fractions(fraction_make(1, 2), fraction_make(1, 2));
+  Complex right = c_from_fractions(fraction_make(1, 2), fraction_make(-1, 2));
+  Complex prod = c_mul(left, right);
+  ASSERT_TRUE(prod.exact);
+  ASSERT_TRUE(fraction_is(prod.re_q, 1, 2));
+  ASSERT_TRUE(fraction_is_zero(prod.im_q));
+  Complex sum = c_add(c_real(1.0 / 2.0), c_real(1.0 / 3.0));
+  ASSERT_TRUE(sum.exact);
+  ASSERT_TRUE(fraction_is(sum.re_q, 5, 6));
+  ASSERT_TRUE(fraction_is_zero(sum.im_q));
+  PASS();
+}
+
+static void test_simplify_rational_add(void) {
+  TEST("simplify: 1/2 + 1/3 -> 5/6");
+  ParseResult r = parse("1/2 + 1/3");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "5/6");
+  ASSERT_TRUE(s->type == AST_NUMBER && s->as.number.exact);
+  ASSERT_TRUE(fraction_is(s->as.number.re_q, 5, 6));
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_simplify_rational_pow(void) {
+  TEST("simplify: (1/2)^2 -> 1/4");
+  ParseResult r = parse("(1/2)^2");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "1/4");
+  ASSERT_TRUE(s->type == AST_NUMBER && s->as.number.exact);
+  ASSERT_TRUE(fraction_is(s->as.number.re_q, 1, 4));
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_simplify_exact_complex_product(void) {
+  TEST("simplify: (1/2 + i/2) * (1/2 - i/2) -> 1/2");
+  ParseResult r = parse("(1/2 + i/2) * (1/2 - i/2)");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "1/2");
+  ASSERT_TRUE(s->type == AST_NUMBER && s->as.number.exact);
+  ASSERT_TRUE(fraction_is(s->as.number.re_q, 1, 2));
+  ASSERT_TRUE(fraction_is_zero(s->as.number.im_q));
+  free(str);
   ast_free(s);
   parse_result_free(&r);
   PASS();
@@ -1541,6 +1627,16 @@ static void test_latex_number(void) {
   PASS();
 }
 
+static void test_latex_fraction(void) {
+  TEST("latex: 1/2 renders as fraction");
+  AstNode *n = ast_number(0.5);
+  char *s = ast_to_latex(n);
+  ASSERT_STR_EQ(s, "\\frac{1}{2}");
+  free(s);
+  ast_free(n);
+  PASS();
+}
+
 static void test_latex_variable(void) {
   TEST("latex: single char variable");
   AstNode *n = ast_variable("x", 1);
@@ -1870,6 +1966,7 @@ int main(void) {
   test_eval_sqrt();
   test_eval_pi();
   test_eval_complex_expr();
+  test_eval_exact_rational();
   test_eval_div_zero();
   test_eval_nested_func();
   test_eval_symtab();
@@ -1880,6 +1977,8 @@ int main(void) {
   test_simplify_zero_mul();
   test_simplify_identity_add();
   test_simplify_const_fold();
+  test_fraction_arithmetic();
+  test_complex_exact_arithmetic();
   test_simplify_x_minus_x();
   test_simplify_x_plus_x();
   test_simplify_x_times_x();
@@ -1889,6 +1988,9 @@ int main(void) {
   test_simplify_double_neg();
   test_simplify_mul_neg_one();
   test_simplify_coeff_merge();
+  test_simplify_rational_add();
+  test_simplify_rational_pow();
+  test_simplify_exact_complex_product();
   test_simplify_mul_reciprocal();
   test_simplify_cancel_div();
   test_simplify_trig_tan();
@@ -1966,6 +2068,7 @@ int main(void) {
 
   printf("\n[LaTeX]\n");
   test_latex_number();
+  test_latex_fraction();
   test_latex_variable();
   test_latex_pi();
   test_latex_multichar_var();

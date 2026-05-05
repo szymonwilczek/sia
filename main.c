@@ -35,7 +35,17 @@ static void print_error(const char *msg) {
 }
 
 static void format_number(char *buf, size_t size, Complex z) {
-  if (fabs(z.im) < 1e-15) {
+  if (z.exact && fraction_is_zero(z.im_q)) {
+    Fraction f = z.re_q;
+    if (f.den != 1) {
+      if (f.num < 0)
+        snprintf(buf, size, "-%lld/%lld", -f.num, f.den);
+      else
+        snprintf(buf, size, "%lld/%lld", f.num, f.den);
+    } else {
+      snprintf(buf, size, "%lld", f.num);
+    }
+  } else if (fabs(z.im) < 1e-15) {
     double v = z.re;
     Fraction f = fraction_from_double(v);
     if (f.den != 1) {
@@ -48,6 +58,15 @@ static void format_number(char *buf, size_t size, Complex z) {
     } else {
       snprintf(buf, size, "%g", v);
     }
+  } else if (z.exact && fraction_is_zero(z.re_q)) {
+    if (fraction_is_one(z.im_q))
+      snprintf(buf, size, "i");
+    else if (fraction_eq(z.im_q, fraction_neg((Fraction){1, 1})))
+      snprintf(buf, size, "-i");
+    else if (z.im_q.den == 1)
+      snprintf(buf, size, "%lldi", z.im_q.num);
+    else
+      snprintf(buf, size, "%lld/%lldi", z.im_q.num, z.im_q.den);
   } else if (fabs(z.re) < 1e-15) {
     if (z.im == 1.0)
       snprintf(buf, size, "i");
@@ -59,19 +78,39 @@ static void format_number(char *buf, size_t size, Complex z) {
       snprintf(buf, size, "%gi", z.im);
   } else {
     char im_buf[32];
-    double aim = fabs(z.im);
-    if (aim == 1.0)
-      snprintf(im_buf, sizeof im_buf, "i");
-    else if (aim == (long long)aim && aim < 1e15)
-      snprintf(im_buf, sizeof im_buf, "%lldi", (long long)aim);
-    else
-      snprintf(im_buf, sizeof im_buf, "%gi", aim);
+    if (z.exact) {
+      if (fraction_is_one(z.im_q))
+        snprintf(im_buf, sizeof im_buf, "i");
+      else if (fraction_is_zero(z.im_q))
+        snprintf(im_buf, sizeof im_buf, "0");
+      else if (z.im_q.den == 1)
+        snprintf(im_buf, sizeof im_buf, "%lldi",
+                 z.im_q.num < 0 ? -z.im_q.num : z.im_q.num);
+      else
+        snprintf(im_buf, sizeof im_buf, "%lld/%lldi", llabs(z.im_q.num),
+                 z.im_q.den);
 
-    if (z.re == (long long)z.re && fabs(z.re) < 1e15)
-      snprintf(buf, size, "%lld %c %s", (long long)z.re, z.im > 0 ? '+' : '-',
-               im_buf);
-    else
-      snprintf(buf, size, "%g %c %s", z.re, z.im > 0 ? '+' : '-', im_buf);
+      if (z.re_q.den == 1)
+        snprintf(buf, size, "%lld %c %s", z.re_q.num,
+                 z.im_q.num >= 0 ? '+' : '-', im_buf);
+      else
+        snprintf(buf, size, "%lld/%lld %c %s", z.re_q.num, z.re_q.den,
+                 z.im_q.num >= 0 ? '+' : '-', im_buf);
+    } else {
+      double aim = fabs(z.im);
+      if (aim == 1.0)
+        snprintf(im_buf, sizeof im_buf, "i");
+      else if (aim == (long long)aim && aim < 1e15)
+        snprintf(im_buf, sizeof im_buf, "%lldi", (long long)aim);
+      else
+        snprintf(im_buf, sizeof im_buf, "%gi", aim);
+
+      if (z.re == (long long)z.re && fabs(z.re) < 1e15)
+        snprintf(buf, size, "%lld %c %s", (long long)z.re, z.im > 0 ? '+' : '-',
+                 im_buf);
+      else
+        snprintf(buf, size, "%g %c %s", z.re, z.im > 0 ? '+' : '-', im_buf);
+    }
   }
 }
 

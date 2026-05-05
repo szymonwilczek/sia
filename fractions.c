@@ -1,5 +1,114 @@
 #include "fractions.h"
+#include <limits.h>
 #include <math.h>
+#include <stdlib.h>
+
+static long long ll_gcd(long long a, long long b) {
+  while (b != 0) {
+    long long t = a % b;
+    a = b;
+    b = t;
+  }
+  return a < 0 ? -a : a;
+}
+
+Fraction fraction_make(long long num, long long den) {
+  if (den == 0)
+    return (Fraction){num, den};
+  if (num == 0)
+    return (Fraction){0, 1};
+  if (den < 0) {
+    num = -num;
+    den = -den;
+  }
+  long long g = ll_gcd(num, den);
+  if (g == 0)
+    return (Fraction){num, den};
+  return (Fraction){num / g, den / g};
+}
+
+Fraction fraction_neg(Fraction f) { return (Fraction){-f.num, f.den}; }
+
+int fraction_is_zero(Fraction f) { return f.num == 0; }
+
+int fraction_is_one(Fraction f) { return f.num == f.den && f.den != 0; }
+
+int fraction_eq(Fraction a, Fraction b) {
+  return a.num == b.num && a.den == b.den;
+}
+
+static int safe_add_ll(long long a, long long b, long long *out) {
+  return !__builtin_add_overflow(a, b, out);
+}
+
+static int safe_mul_ll(long long a, long long b, long long *out) {
+  return !__builtin_mul_overflow(a, b, out);
+}
+
+static Fraction fraction_from_math(long long num, long long den) {
+  if (den == 0)
+    return (Fraction){0, 0};
+  return fraction_make(num, den);
+}
+
+Fraction fraction_add(Fraction a, Fraction b) {
+  long long left = 0;
+  long long right = 0;
+  long long den = 0;
+  if (safe_mul_ll(a.num, b.den, &left) && safe_mul_ll(b.num, a.den, &right) &&
+      safe_add_ll(left, right, &left) && safe_mul_ll(a.den, b.den, &den)) {
+    return fraction_from_math(left, den);
+  }
+  return fraction_from_double((double)a.num / (double)a.den +
+                              (double)b.num / (double)b.den);
+}
+
+Fraction fraction_sub(Fraction a, Fraction b) {
+  long long left = 0;
+  long long right = 0;
+  long long den = 0;
+  if (safe_mul_ll(a.num, b.den, &left) && safe_mul_ll(b.num, a.den, &right) &&
+      safe_add_ll(left, -right, &left) && safe_mul_ll(a.den, b.den, &den)) {
+    return fraction_from_math(left, den);
+  }
+  return fraction_from_double((double)a.num / (double)a.den -
+                              (double)b.num / (double)b.den);
+}
+
+Fraction fraction_mul(Fraction a, Fraction b) {
+  long long num = 0;
+  long long den = 0;
+  if (safe_mul_ll(a.num, b.num, &num) && safe_mul_ll(a.den, b.den, &den))
+    return fraction_from_math(num, den);
+  return fraction_from_double((double)a.num / (double)a.den *
+                              ((double)b.num / (double)b.den));
+}
+
+Fraction fraction_div(Fraction a, Fraction b) {
+  if (b.num == 0)
+    return (Fraction){0, 0};
+  long long num = 0;
+  long long den = 0;
+  if (safe_mul_ll(a.num, b.den, &num) && safe_mul_ll(a.den, b.num, &den))
+    return fraction_from_math(num, den);
+  return fraction_from_double((double)a.num / (double)a.den /
+                              ((double)b.num / (double)b.den));
+}
+
+Fraction fraction_exact_from_double(double v, int *exact) {
+  Fraction f = fraction_from_double(v);
+  int is_exact = 0;
+  if (isfinite(v)) {
+    if (f.den != 1) {
+      is_exact = fabs((double)f.num / f.den - v) < 1e-12;
+    } else {
+      is_exact = v == (long long)v;
+    }
+  }
+  if (exact)
+    *exact = is_exact;
+  return f;
+}
 
 Fraction fraction_from_double(double x) {
   Fraction f;
