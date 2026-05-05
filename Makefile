@@ -1,3 +1,6 @@
+VERSION   := 0.1.0
+CODENAME  := "Algorithmic Al-Khwarizmi"
+
 CC      ?= gcc
 CFLAGS  := -std=c11 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
            -Wall -Wextra -Wpedantic -Werror \
