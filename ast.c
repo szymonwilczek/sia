@@ -1,4 +1,5 @@
 #include "ast.h"
+#include "fractions.h"
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -218,10 +219,15 @@ static void ast_serialize(const AstNode *node, StrBuf *sb,
   switch (node->type) {
   case AST_NUMBER: {
     double v = node->as.number;
-    if (v == (long long)v && fabs(v) < 1e15)
-      sb_printf(sb, "%lld", (long long)v);
-    else
-      sb_printf(sb, "%g", v);
+    Fraction f = fraction_from_double(v);
+    if (f.den != 1) {
+      sb_printf(sb, "%lld/%lld", f.num, f.den);
+    } else {
+      if (v == (long long)v && fabs(v) < 1e15)
+        sb_printf(sb, "%lld", (long long)v);
+      else
+        sb_printf(sb, "%g", v);
+    }
     break;
   }
   case AST_VARIABLE:

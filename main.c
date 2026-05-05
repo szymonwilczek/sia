@@ -15,6 +15,7 @@
 static int is_tty;
 static int latex_mode;
 static int full_doc_mode;
+static int late_binding_mode;
 static SymTab global_symtab;
 
 static void print_bold(const char *s) {
@@ -138,7 +139,7 @@ static AstNode *substitute_vars(AstNode *node, const SymTab *st) {
   case AST_VARIABLE: {
     /* scalar value first */
     double val;
-    if (symtab_get(st, node->as.variable, &val)) {
+    if (!late_binding_mode && symtab_get(st, node->as.variable, &val)) {
       ast_free(node);
       return ast_number(val);
     }
@@ -501,7 +502,9 @@ static int handle_let(const char *input) {
   }
 
   if (params) {
+    late_binding_mode = 1;
     AstNode *body = resolve_symbolic(ast_clone(pr.root), &global_symtab);
+    late_binding_mode = 0;
     symtab_set_func(&global_symtab, name, params, num_params, body);
     char *s = ast_to_string(body);
     char out[512];

@@ -1,4 +1,5 @@
 #include "latex.h"
+#include "fractions.h"
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -112,10 +113,19 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
   switch (node->type) {
   case AST_NUMBER: {
     double v = node->as.number;
-    if (v == (long long)v && fabs(v) < 1e15)
-      sb_printf(sb, "%lld", (long long)v);
-    else
-      sb_printf(sb, "%g", v);
+    Fraction f = fraction_from_double(v);
+    if (f.den != 1) {
+      if (f.num < 0) {
+        sb_printf(sb, "-\\frac{%lld}{%lld}", -f.num, f.den);
+      } else {
+        sb_printf(sb, "\\frac{%lld}{%lld}", f.num, f.den);
+      }
+    } else {
+      if (v == (long long)v && fabs(v) < 1e15)
+        sb_printf(sb, "%lld", (long long)v);
+      else
+        sb_printf(sb, "%g", v);
+    }
     break;
   }
 
@@ -178,6 +188,32 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
     }
 
     if (op == OP_MUL) {
+      if (L->type == AST_NUMBER) {
+        Fraction f = fraction_from_double(L->as.number);
+        if (f.den != 1) {
+          if (f.num == 1) {
+            sb_puts(sb, "\\frac{");
+            latex_child(R, sb, node, 1, 0);
+            sb_printf(sb, "}{%lld}", f.den);
+            break;
+          } else if (f.num == -1) {
+            sb_puts(sb, "-\\frac{");
+            latex_child(R, sb, node, 1, 0);
+            sb_printf(sb, "}{%lld}", f.den);
+            break;
+          } else if (f.num < 0) {
+            sb_printf(sb, "-\\frac{%lld ", -f.num);
+            latex_child(R, sb, node, 1, 0);
+            sb_printf(sb, "}{%lld}", f.den);
+            break;
+          } else {
+            sb_printf(sb, "\\frac{%lld ", f.num);
+            latex_child(R, sb, node, 1, 0);
+            sb_printf(sb, "}{%lld}", f.den);
+            break;
+          }
+        }
+      }
       latex_child(L, sb, node, 0, 0);
       if (needs_mul_dot(L, R))
         sb_puts(sb, " \\cdot ");
