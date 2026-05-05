@@ -2,6 +2,7 @@
 #include "canonical.h"
 #include "factorial.h"
 #include "logarithm.h"
+#include "number_theory.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -148,6 +149,8 @@ AstNode *sym_simplify(AstNode *node) {
       node->as.call.args[i] = sym_simplify(node->as.call.args[i]);
     if (factorial_is_call(node))
       return factorial_simplify_call(node);
+    if (number_theory_kind(node) != NT_KIND_NONE)
+      return number_theory_simplify_call(node);
     if (log_kind(node) != LOG_KIND_NONE)
       return log_simplify_call(node);
     if (node->as.call.nargs == 1 && is_num(node->as.call.args[0])) {

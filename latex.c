@@ -2,6 +2,7 @@
 #include "factorial.h"
 #include "fractions.h"
 #include "logarithm.h"
+#include "number_theory.h"
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -308,6 +309,21 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
         latex_node(arg, sb, NULL, 0);
       }
       sb_puts(sb, "!");
+      break;
+    }
+
+    NumberTheoryKind nt_kind = number_theory_kind(node);
+    if (nt_kind != NT_KIND_NONE) {
+      if (nt_kind == NT_KIND_GCD) {
+        sb_puts(sb, "\\gcd");
+      } else {
+        sb_puts(sb, "\\operatorname{lcm}");
+      }
+      sb_puts(sb, "\\left(");
+      latex_node(node->as.call.args[0], sb, NULL, 0);
+      sb_puts(sb, ", ");
+      latex_node(node->as.call.args[1], sb, NULL, 0);
+      sb_puts(sb, "\\right)");
       break;
     }
 

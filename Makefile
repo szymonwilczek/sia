@@ -1,4 +1,4 @@
-VERSION   := 0.6.6
+VERSION   := 0.6.7
 CODENAME  := "Gauss's Ghost"
 
 CC      ?= gcc
@@ -11,6 +11,7 @@ LDLIBS  := -lm
 
 SRC     := lexer.c ast.c parser.c eval.c symbolic.c canonical.c \
 		   symtab.c matrix.c latex.c fractions.c logarithm.c factorial.c \
+		   number_theory.c \
 		   solve.c main.c
 OBJ     := $(SRC:.c=.o)
 DEP     := $(SRC:.c=.d)
@@ -18,6 +19,7 @@ BIN     := sia
 
 CORE    := lexer.c ast.c parser.c eval.c symbolic.c canonical.c \
 		   symtab.c matrix.c latex.c fractions.c logarithm.c factorial.c \
+		   number_theory.c \
 		   solve.c
 TEST_SRC := test_sia.c $(CORE)
 TEST_BIN := test_sia

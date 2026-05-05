@@ -401,6 +401,51 @@ static void test_eval_elementary_functions(void) {
   PASS();
 }
 
+static void test_eval_number_theory(void) {
+  TEST("eval: gcd/lcm exact integers");
+
+  ParseResult r1 = parse("gcd(24, 18)");
+  EvalResult e1 = eval(r1.root, NULL);
+  ASSERT_TRUE(e1.ok);
+  ASSERT_TRUE(e1.value.exact);
+  ASSERT_TRUE(fraction_is(e1.value.re_q, 6, 1));
+  ASSERT_TRUE(fraction_is_zero(e1.value.im_q));
+  eval_result_free(&e1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("lcm(6, 8)");
+  EvalResult e2 = eval(r2.root, NULL);
+  ASSERT_TRUE(e2.ok);
+  ASSERT_TRUE(e2.value.exact);
+  ASSERT_TRUE(fraction_is(e2.value.re_q, 24, 1));
+  ASSERT_TRUE(fraction_is_zero(e2.value.im_q));
+  eval_result_free(&e2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("gcd(12/3, 18/3)");
+  EvalResult e3 = eval(r3.root, NULL);
+  ASSERT_TRUE(e3.ok);
+  ASSERT_TRUE(e3.value.exact);
+  ASSERT_TRUE(fraction_is(e3.value.re_q, 2, 1));
+  ASSERT_TRUE(fraction_is_zero(e3.value.im_q));
+  eval_result_free(&e3);
+  parse_result_free(&r3);
+
+  PASS();
+}
+
+static void test_eval_number_theory_overflow(void) {
+  TEST("eval: lcm overflow detection");
+  ParseResult r = parse("lcm(3037000500, 3037000501)");
+  EvalResult e = eval(r.root, NULL);
+  ASSERT_TRUE(!e.ok);
+  ASSERT_TRUE(e.error != NULL);
+  ASSERT_TRUE(strstr(e.error, "overflow") != NULL);
+  eval_result_free(&e);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_eval_pi(void) {
   TEST("eval: pi constant");
   ParseResult r = parse("pi");
@@ -810,6 +855,30 @@ static void test_simplify_elementary_functions(void) {
   ASSERT_TRUE(is_num_node(s4, 3));
   ast_free(s4);
   parse_result_free(&r4);
+
+  PASS();
+}
+
+static void test_simplify_number_theory(void) {
+  TEST("simplify: gcd/lcm exact folding");
+
+  ParseResult r1 = parse("gcd(24, 18)");
+  AstNode *s1 = sym_simplify(ast_clone(r1.root));
+  ASSERT_TRUE(is_num_node(s1, 6));
+  ast_free(s1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("lcm(6, 8)");
+  AstNode *s2 = sym_simplify(ast_clone(r2.root));
+  ASSERT_TRUE(is_num_node(s2, 24));
+  ast_free(s2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("gcd(12/3, 18/3)");
+  AstNode *s3 = sym_simplify(ast_clone(r3.root));
+  ASSERT_TRUE(is_num_node(s3, 2));
+  ast_free(s3);
+  parse_result_free(&r3);
 
   PASS();
 }
@@ -1830,6 +1899,24 @@ static void test_latex_factorial(void) {
   PASS();
 }
 
+static void test_latex_number_theory(void) {
+  TEST("latex: gcd/lcm render as operators");
+
+  ParseResult r1 = parse("gcd(24, 18)");
+  char *s1 = ast_to_latex(r1.root);
+  ASSERT_STR_EQ(s1, "\\gcd\\left(24, 18\\right)");
+  free(s1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("lcm(6, 8)");
+  char *s2 = ast_to_latex(r2.root);
+  ASSERT_STR_EQ(s2, "\\operatorname{lcm}\\left(6, 8\\right)");
+  free(s2);
+  parse_result_free(&r2);
+
+  PASS();
+}
+
 static void test_latex_fraction(void) {
   TEST("latex: 1/2 renders as fraction");
   AstNode *n = ast_number(0.5);
@@ -2197,6 +2284,8 @@ int main(void) {
   test_eval_cos();
   test_eval_sqrt();
   test_eval_elementary_functions();
+  test_eval_number_theory();
+  test_eval_number_theory_overflow();
   test_eval_pi();
   test_eval_complex_expr();
   test_eval_exact_rational();
@@ -2232,6 +2321,7 @@ int main(void) {
   test_simplify_trig_pythagorean();
   test_simplify_exp_ln();
   test_simplify_elementary_functions();
+  test_simplify_number_theory();
   test_simplify_distributive();
   test_expand();
   test_matrix_expand();
@@ -2331,6 +2421,7 @@ int main(void) {
   test_latex_complex_num();
   test_latex_imaginary();
   test_latex_factorial();
+  test_latex_number_theory();
 
   printf("\n[Solver]\n");
   test_solve_linear();

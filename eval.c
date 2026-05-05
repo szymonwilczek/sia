@@ -1,6 +1,7 @@
 #include "eval.h"
 #include "factorial.h"
 #include "logarithm.h"
+#include "number_theory.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,6 +56,21 @@ static EvalResult eval_call(const char *name, Complex *args, size_t nargs) {
     Complex result = factorial_eval_value(args[0], &ok_flag, &error);
     if (!ok_flag) {
       EvalResult r = fail(error ? error : "domain error: factorial");
+      free(error);
+      return r;
+    }
+    free(error);
+    return ok(result);
+  }
+
+  NumberTheoryKind nt_kind = number_theory_kind(&node);
+  if (nt_kind != NT_KIND_NONE) {
+    char *error = NULL;
+    int ok_flag = 0;
+    Complex result =
+        number_theory_eval_value(nt_kind, args[0], args[1], &ok_flag, &error);
+    if (!ok_flag) {
+      EvalResult r = fail(error ? error : "domain error: gcd/lcm");
       free(error);
       return r;
     }
