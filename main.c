@@ -155,6 +155,108 @@ static AstNode *substitute_vars(AstNode *node, const SymTab *st) {
   return node;
 }
 
+static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
+  if (!node)
+    return NULL;
+
+  if (node->type == AST_FUNC_CALL) {
+    /* diff(expr, var) */
+    if (strcmp(node->as.call.name, "diff") == 0 && node->as.call.nargs == 2 &&
+        node->as.call.args[1]->type == AST_VARIABLE) {
+      AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
+      expr = substitute_vars(expr, st);
+      AstNode *res = sym_diff(expr, node->as.call.args[1]->as.variable);
+      ast_free(expr);
+      if (res) {
+        res = sym_simplify(res);
+        ast_free(node);
+        return resolve_symbolic(res, st);
+      }
+    }
+    /* int(expr, var) or int(expr, var, a, b) */
+    if ((strcmp(node->as.call.name, "int") == 0 ||
+         strcmp(node->as.call.name, "integrate") == 0) &&
+        (node->as.call.nargs == 2 || node->as.call.nargs == 4) &&
+        node->as.call.args[1]->type == AST_VARIABLE) {
+      AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
+      expr = substitute_vars(expr, st);
+      expr = ast_canonicalize(expr);
+      expr = sym_simplify(expr);
+      AstNode *result = sym_integrate(expr, node->as.call.args[1]->as.variable);
+      ast_free(expr);
+      if (result) {
+        result = sym_simplify(result);
+        if (node->as.call.nargs == 4) {
+          char *var_name = node->as.call.args[1]->as.variable;
+          AstNode *lower =
+              resolve_symbolic(ast_clone(node->as.call.args[2]), st);
+          lower = substitute_vars(lower, st);
+          AstNode *upper =
+              resolve_symbolic(ast_clone(node->as.call.args[3]), st);
+          upper = substitute_vars(upper, st);
+
+          AstNode *res_upper = substitute_params(result, &var_name, &upper, 1);
+          AstNode *res_lower = substitute_params(result, &var_name, &lower, 1);
+
+          AstNode *def_res = ast_binop(OP_SUB, res_upper, res_lower);
+          def_res = sym_simplify(def_res);
+          def_res = sym_expand(def_res);
+          def_res = ast_canonicalize(def_res);
+          def_res = sym_collect_terms(def_res);
+          def_res = sym_simplify(def_res);
+
+          ast_free(result);
+          ast_free(upper);
+          ast_free(lower);
+          ast_free(node);
+          return resolve_symbolic(def_res, st);
+        } else {
+          ast_free(node);
+          return resolve_symbolic(result, st);
+        }
+      }
+    }
+    /* simplify(expr) */
+    if (strcmp(node->as.call.name, "simplify") == 0 &&
+        node->as.call.nargs == 1) {
+      AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
+      expr = substitute_vars(expr, st);
+      AstNode *simplified = sym_simplify(expr);
+      ast_free(node);
+      return resolve_symbolic(simplified, st);
+    }
+    /* expand(expr) */
+    if (strcmp(node->as.call.name, "expand") == 0 && node->as.call.nargs == 1) {
+      AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
+      expr = substitute_vars(expr, st);
+      AstNode *expanded = sym_expand(expr);
+      expanded = ast_canonicalize(expanded);
+      expanded = sym_collect_terms(expanded);
+      expanded = sym_simplify(expanded);
+      ast_free(node);
+      return resolve_symbolic(expanded, st);
+    }
+
+    /* other functions: resolve arguments */
+    for (size_t i = 0; i < node->as.call.nargs; i++) {
+      node->as.call.args[i] = resolve_symbolic(node->as.call.args[i], st);
+    }
+  } else if (node->type == AST_BINOP) {
+    node->as.binop.left = resolve_symbolic(node->as.binop.left, st);
+    node->as.binop.right = resolve_symbolic(node->as.binop.right, st);
+  } else if (node->type == AST_UNARY_NEG) {
+    node->as.unary.operand = resolve_symbolic(node->as.unary.operand, st);
+  } else if (node->type == AST_MATRIX) {
+    size_t total = node->as.matrix.rows * node->as.matrix.cols;
+    for (size_t i = 0; i < total; i++) {
+      node->as.matrix.elements[i] =
+          resolve_symbolic(node->as.matrix.elements[i], st);
+    }
+  }
+
+  return node;
+}
+
 static int has_matrix(const AstNode *node) {
   if (!node)
     return 0;
@@ -358,9 +460,9 @@ static int handle_let(const char *input) {
   }
 
   if (params) {
-    symtab_set_func(&global_symtab, name, params, num_params,
-                    ast_clone(pr.root));
-    char *s = ast_to_string(pr.root);
+    AstNode *body = resolve_symbolic(ast_clone(pr.root), &global_symtab);
+    symtab_set_func(&global_symtab, name, params, num_params, body);
+    char *s = ast_to_string(body);
     char out[512];
     snprintf(out, sizeof out, "%s = %s", name, s);
     print_bold(out);
@@ -378,8 +480,9 @@ static int handle_let(const char *input) {
       putchar('\n');
     } else {
       /* store as symbolic expression */
-      symtab_set_expr(&global_symtab, name, ast_clone(pr.root));
-      char *s = ast_to_string(pr.root);
+      AstNode *resolved = resolve_symbolic(ast_clone(pr.root), &global_symtab);
+      symtab_set_expr(&global_symtab, name, resolved);
+      char *s = ast_to_string(resolved);
       char out[512];
       snprintf(out, sizeof out, "%s = %s", name, s);
       print_bold(out);
@@ -410,6 +513,8 @@ static int process_input(const char *input, int batch_mode) {
     parse_result_free(&pr);
     return 1;
   }
+
+  pr.root = resolve_symbolic(pr.root, &global_symtab);
 
   /* symbolic function calls: diff, int, simplify */
   if (pr.root->type == AST_FUNC_CALL) {
