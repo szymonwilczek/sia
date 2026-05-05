@@ -1,5 +1,5 @@
-VERSION   := 0.5.0
-CODENAME  := "Dirichlet's Dream"
+VERSION   := 0.6.0
+CODENAME  := "Gauss's Ghost"
 
 CC      ?= gcc
 CFLAGS  := -std=c11 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
