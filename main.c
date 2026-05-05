@@ -1,6 +1,7 @@
 #include "ast.h"
 #include "canonical.h"
 #include "eval.h"
+#include "fractions.h"
 #include "latex.h"
 #include "matrix.h"
 #include "parser.h"
@@ -36,10 +37,17 @@ static void print_error(const char *msg) {
 static void format_number(char *buf, size_t size, Complex z) {
   if (fabs(z.im) < 1e-15) {
     double v = z.re;
-    if (v == (long long)v && fabs(v) < 1e15)
+    Fraction f = fraction_from_double(v);
+    if (f.den != 1) {
+      if (f.num < 0)
+        snprintf(buf, size, "-%lld/%lld", -f.num, f.den);
+      else
+        snprintf(buf, size, "%lld/%lld", f.num, f.den);
+    } else if (v == (long long)v && fabs(v) < 1e15) {
       snprintf(buf, size, "%lld", (long long)v);
-    else
+    } else {
       snprintf(buf, size, "%g", v);
+    }
   } else if (fabs(z.re) < 1e-15) {
     if (z.im == 1.0)
       snprintf(buf, size, "i");
