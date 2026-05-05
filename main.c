@@ -437,7 +437,7 @@ static int process_input(const char *input, int batch_mode) {
 
     if ((strcmp(pr.root->as.call.name, "int") == 0 ||
          strcmp(pr.root->as.call.name, "integrate") == 0) &&
-        pr.root->as.call.nargs == 2 &&
+        (pr.root->as.call.nargs == 2 || pr.root->as.call.nargs == 4) &&
         pr.root->as.call.args[1]->type == AST_VARIABLE) {
 
       /* substitute known variables and ast_canonicalize before integration */
@@ -450,14 +450,40 @@ static int process_input(const char *input, int batch_mode) {
       ast_free(expr);
       if (result) {
         result = sym_simplify(result);
-        char *s = ast_to_string(result);
-        size_t len = strlen(s);
-        char *out = malloc(len + 5);
-        memcpy(out, s, len);
-        memcpy(out + len, " + C", 5);
-        output_str(out, batch_mode);
-        free(s);
-        free(out);
+        if (pr.root->as.call.nargs == 4) {
+          char *var_name = pr.root->as.call.args[1]->as.variable;
+          AstNode *lower = substitute_vars(ast_clone(pr.root->as.call.args[2]),
+                                           &global_symtab);
+          AstNode *upper = substitute_vars(ast_clone(pr.root->as.call.args[3]),
+                                           &global_symtab);
+
+          AstNode *res_upper = substitute_params(result, &var_name, &upper, 1);
+          AstNode *res_lower = substitute_params(result, &var_name, &lower, 1);
+
+          AstNode *def_res = ast_binop(OP_SUB, res_upper, res_lower);
+          def_res = sym_simplify(def_res);
+          def_res = sym_expand(def_res);
+          def_res = ast_canonicalize(def_res);
+          def_res = sym_collect_terms(def_res);
+          def_res = sym_simplify(def_res);
+
+          char *s = ast_to_string(def_res);
+          output_str(s, batch_mode);
+          free(s);
+
+          ast_free(def_res);
+          ast_free(upper);
+          ast_free(lower);
+        } else {
+          char *s = ast_to_string(result);
+          size_t len = strlen(s);
+          char *out = malloc(len + 5);
+          memcpy(out, s, len);
+          memcpy(out + len, " + C", 5);
+          output_str(out, batch_mode);
+          free(s);
+          free(out);
+        }
         ast_free(result);
       } else {
         print_error("cannot integrate expression");

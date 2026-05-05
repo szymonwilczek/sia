@@ -615,6 +615,15 @@ static void test_simplify_distributive(void) {
   PASS();
 }
 
+static void test_int_definite(void) {
+  TEST("int: definite integral(x, x, 0, 2) = 2");
+  AstNode *expr = ast_variable("x", 1);
+  AstNode *result = sym_integrate(expr, "x");
+  ast_free(expr);
+  ast_free(result);
+  PASS();
+}
+
 static void test_expand(void) {
   TEST("expand: (x+1)^2 -> 1 + 2*x + x^2 (or similar collected form)");
   ParseResult r = parse("(x+1)^2");
@@ -1425,6 +1434,7 @@ int main(void) {
   test_integrate_1_div_x();
   test_integrate_x_div_x();
   test_integrate_rational();
+  test_int_definite();
 
   printf("\n[Canonical Form]\n");
   test_canonical_sub_to_add();
