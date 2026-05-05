@@ -1,5 +1,5 @@
-VERSION   := 0.1.0
-CODENAME  := "Algorithmic Al-Khwarizmi"
+VERSION   := 0.2.0
+CODENAME  := "Boolean Bernoulli"
 
 CC      ?= gcc
 CFLAGS  := -std=c11 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
