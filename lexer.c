@@ -59,6 +59,8 @@ Token lexer_next(Lexer *lex) {
     return make_token(TOK_MINUS, start, 1);
   case '*':
     return make_token(TOK_STAR, start, 1);
+  case '!':
+    return make_token(TOK_BANG, start, 1);
   case '/':
     return make_token(TOK_SLASH, start, 1);
   case '^':
@@ -92,6 +94,8 @@ const char *token_type_name(TokenType type) {
     return "MINUS";
   case TOK_STAR:
     return "STAR";
+  case TOK_BANG:
+    return "BANG";
   case TOK_SLASH:
     return "SLASH";
   case TOK_CARET:

@@ -1,4 +1,5 @@
 #include "latex.h"
+#include "factorial.h"
 #include "fractions.h"
 #include "logarithm.h"
 #include <math.h>
@@ -297,6 +298,19 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
   }
 
   case AST_FUNC_CALL: {
+    if (factorial_is_call(node)) {
+      const AstNode *arg = node->as.call.args[0];
+      if (arg->type == AST_BINOP || arg->type == AST_UNARY_NEG) {
+        sb_puts(sb, "\\left(");
+        latex_node(arg, sb, NULL, 0);
+        sb_puts(sb, "\\right)");
+      } else {
+        latex_node(arg, sb, NULL, 0);
+      }
+      sb_puts(sb, "!");
+      break;
+    }
+
     LogKind kind = log_kind(node);
 
     if (kind == LOG_KIND_LN) {

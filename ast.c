@@ -1,4 +1,5 @@
 #include "ast.h"
+#include "factorial.h"
 #include "fractions.h"
 #include <math.h>
 #include <stdarg.h>
@@ -342,6 +343,18 @@ static void ast_serialize(const AstNode *node, StrBuf *sb,
     sb_append(sb, ")", 1);
     break;
   case AST_FUNC_CALL:
+    if (factorial_is_call(node)) {
+      const AstNode *arg = node->as.call.args[0];
+      if (arg->type == AST_BINOP || arg->type == AST_UNARY_NEG) {
+        sb_append(sb, "(", 1);
+        ast_serialize(arg, sb, NULL, 0);
+        sb_append(sb, ")", 1);
+      } else {
+        ast_serialize(arg, sb, NULL, 0);
+      }
+      sb_append(sb, "!", 1);
+      break;
+    }
     sb_append(sb, node->as.call.name, strlen(node->as.call.name));
     sb_append(sb, "(", 1);
     for (size_t i = 0; i < node->as.call.nargs; i++) {

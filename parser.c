@@ -32,6 +32,42 @@ static int expect(Parser *p, TokenType type) {
 }
 
 static AstNode *parse_expr(Parser *p);
+static AstNode *parse_primary(Parser *p);
+
+static AstNode *parse_postfix(Parser *p) {
+  AstNode *node = parse_primary(p);
+  if (!node)
+    return NULL;
+
+  while (match(p, TOK_BANG)) {
+    advance(p);
+    AstNode *args[] = {node};
+    node = ast_func_call("factorial", 10, args, 1);
+  }
+
+  return node;
+}
+
+static AstNode *parse_unary(Parser *p) {
+  if (match(p, TOK_PLUS)) {
+    advance(p);
+    return parse_unary(p);
+  }
+
+  if (match(p, TOK_MINUS)) {
+    advance(p);
+    AstNode *operand = parse_unary(p);
+    if (!operand)
+      return NULL;
+    if (operand->type == AST_NUMBER) {
+      operand->as.number = c_neg(operand->as.number);
+      return operand;
+    }
+    return ast_unary_neg(operand);
+  }
+
+  return parse_postfix(p);
+}
 
 static AstNode *parse_matrix(Parser *p) {
   /* parse [e00, e01; e10, e11] style matrices */
@@ -200,23 +236,6 @@ static AstNode *parse_primary(Parser *p) {
     return expr;
   }
 
-  if (match(p, TOK_MINUS)) {
-    advance(p);
-    AstNode *operand = parse_primary(p);
-    if (!operand)
-      return NULL;
-    if (operand->type == AST_NUMBER) {
-      operand->as.number = c_neg(operand->as.number);
-      return operand;
-    }
-    return ast_unary_neg(operand);
-  }
-
-  if (match(p, TOK_PLUS)) {
-    advance(p);
-    return parse_primary(p);
-  }
-
   if (match(p, TOK_LBRACKET)) {
     advance(p); /* consume outer '[' */
     return parse_matrix(p);
@@ -230,13 +249,13 @@ static AstNode *parse_primary(Parser *p) {
 }
 
 static AstNode *parse_power(Parser *p) {
-  AstNode *left = parse_primary(p);
+  AstNode *left = parse_unary(p);
   if (!left)
     return NULL;
 
   while (match(p, TOK_CARET)) {
     advance(p);
-    AstNode *right = parse_primary(p);
+    AstNode *right = parse_unary(p);
     if (!right) {
       ast_free(left);
       return NULL;

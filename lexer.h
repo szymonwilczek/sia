@@ -9,6 +9,7 @@ typedef enum {
   TOK_PLUS,
   TOK_MINUS,
   TOK_STAR,
+  TOK_BANG,
   TOK_SLASH,
   TOK_CARET,
   TOK_LPAREN,

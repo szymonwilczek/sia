@@ -1,5 +1,6 @@
 #include "symbolic.h"
 #include "canonical.h"
+#include "factorial.h"
 #include "logarithm.h"
 #include <math.h>
 #include <stdlib.h>
@@ -145,6 +146,8 @@ AstNode *sym_simplify(AstNode *node) {
   case AST_FUNC_CALL:
     for (size_t i = 0; i < node->as.call.nargs; i++)
       node->as.call.args[i] = sym_simplify(node->as.call.args[i]);
+    if (factorial_is_call(node))
+      return factorial_simplify_call(node);
     if (log_kind(node) != LOG_KIND_NONE)
       return log_simplify_call(node);
     if (node->as.call.nargs == 1 && is_num(node->as.call.args[0])) {
@@ -973,6 +976,9 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
   }
 
   case AST_FUNC_CALL: {
+    if (!sym_contains_var(expr, var))
+      return ast_number(0);
+
     if (log_kind(expr) != LOG_KIND_NONE)
       return log_diff_call(expr, var);
 

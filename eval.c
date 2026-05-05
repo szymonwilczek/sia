@@ -1,4 +1,5 @@
 #include "eval.h"
+#include "factorial.h"
 #include "logarithm.h"
 #include <math.h>
 #include <stdio.h>
@@ -41,6 +42,19 @@ static EvalResult eval_call(const char *name, Complex *args, size_t nargs) {
     Complex result = log_eval_value_base(args[0], base, &ok_flag, &error);
     if (!ok_flag) {
       EvalResult r = fail(error ? error : "domain error: log");
+      free(error);
+      return r;
+    }
+    free(error);
+    return ok(result);
+  }
+
+  if (factorial_is_call(&node)) {
+    char *error = NULL;
+    int ok_flag = 0;
+    Complex result = factorial_eval_value(args[0], &ok_flag, &error);
+    if (!ok_flag) {
+      EvalResult r = fail(error ? error : "domain error: factorial");
       free(error);
       return r;
     }

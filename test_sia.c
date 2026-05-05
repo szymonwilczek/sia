@@ -210,6 +210,17 @@ static void test_parser_func_call(void) {
   PASS();
 }
 
+static void test_parser_factorial(void) {
+  TEST("parser: postfix factorial 5!");
+  ParseResult r = parse("5!");
+  ASSERT_TRUE(r.root != NULL);
+  ASSERT_EQ(r.root->type, AST_FUNC_CALL);
+  ASSERT_STR_EQ(r.root->as.call.name, "factorial");
+  ASSERT_EQ(r.root->as.call.nargs, 1);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_parser_nested(void) {
   TEST("parser: nested expression 2^3+1");
   ParseResult r = parse("2^3+1");
@@ -322,6 +333,42 @@ static void test_eval_sqrt(void) {
   EvalResult e = eval(r.root, NULL);
   ASSERT_TRUE(e.ok);
   ASSERT_CNEAR(e.value, c_real(12.0), 1e-9);
+  eval_result_free(&e);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_eval_factorial(void) {
+  TEST("eval: 5! and factorial(5) = 120");
+
+  ParseResult r1 = parse("5!");
+  EvalResult e1 = eval(r1.root, NULL);
+  ASSERT_TRUE(e1.ok);
+  ASSERT_TRUE(e1.value.exact);
+  ASSERT_TRUE(fraction_is(e1.value.re_q, 120, 1));
+  ASSERT_TRUE(fraction_is_zero(e1.value.im_q));
+  eval_result_free(&e1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("factorial(5)");
+  EvalResult e2 = eval(r2.root, NULL);
+  ASSERT_TRUE(e2.ok);
+  ASSERT_TRUE(e2.value.exact);
+  ASSERT_TRUE(fraction_is(e2.value.re_q, 120, 1));
+  ASSERT_TRUE(fraction_is_zero(e2.value.im_q));
+  eval_result_free(&e2);
+  parse_result_free(&r2);
+
+  PASS();
+}
+
+static void test_eval_factorial_overflow(void) {
+  TEST("eval: factorial overflow on 21!");
+  ParseResult r = parse("21!");
+  EvalResult e = eval(r.root, NULL);
+  ASSERT_TRUE(!e.ok);
+  ASSERT_TRUE(e.error != NULL);
+  ASSERT_TRUE(strstr(e.error, "overflow") != NULL);
   eval_result_free(&e);
   parse_result_free(&r);
   PASS();
@@ -763,6 +810,24 @@ static void test_simplify_elementary_functions(void) {
   ASSERT_TRUE(is_num_node(s4, 3));
   ast_free(s4);
   parse_result_free(&r4);
+
+  PASS();
+}
+
+static void test_simplify_factorial(void) {
+  TEST("simplify: 5! and factorial(5) -> 120");
+
+  ParseResult r1 = parse("5!");
+  AstNode *s1 = sym_simplify(ast_clone(r1.root));
+  ASSERT_TRUE(is_num_node(s1, 120));
+  ast_free(s1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("factorial(5)");
+  AstNode *s2 = sym_simplify(ast_clone(r2.root));
+  ASSERT_TRUE(is_num_node(s2, 120));
+  ast_free(s2);
+  parse_result_free(&r2);
 
   PASS();
 }
@@ -1755,6 +1820,16 @@ static void test_latex_elementary_functions(void) {
   PASS();
 }
 
+static void test_latex_factorial(void) {
+  TEST("latex: factorial postfix");
+  ParseResult r = parse("(x+1)!");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "\\left(x + 1\\right)!");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_latex_fraction(void) {
   TEST("latex: 1/2 renders as fraction");
   AstNode *n = ast_number(0.5);
@@ -2107,6 +2182,7 @@ int main(void) {
   test_parser_matrix_2x2();
   test_parser_matrix_1xN();
   test_parser_matrix_symbolic();
+  test_parser_factorial();
 
   printf("\n[AST]\n");
   test_ast_clone();
@@ -2129,6 +2205,8 @@ int main(void) {
   test_eval_symtab();
   test_eval_hyperbolic();
   test_eval_complex_domain();
+  test_eval_factorial_overflow();
+  test_eval_factorial();
 
   printf("\n[Symbolic - Simplify]\n");
   test_simplify_zero_mul();
@@ -2157,6 +2235,7 @@ int main(void) {
   test_simplify_distributive();
   test_expand();
   test_matrix_expand();
+  test_simplify_factorial();
 
   printf("\n[Symbolic - Differentiation]\n");
   test_diff_constant();
@@ -2251,6 +2330,7 @@ int main(void) {
   test_latex_complex_expr();
   test_latex_complex_num();
   test_latex_imaginary();
+  test_latex_factorial();
 
   printf("\n[Solver]\n");
   test_solve_linear();
