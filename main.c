@@ -216,6 +216,17 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
         }
       }
     }
+    /* det(matrix) */
+    if (strcmp(node->as.call.name, "det") == 0 && node->as.call.nargs == 1) {
+      AstNode *arg = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
+      arg = substitute_vars(arg, st);
+      AstNode *result = sym_det(arg);
+      ast_free(arg);
+      if (result) {
+        ast_free(node);
+        return resolve_symbolic(result, st);
+      }
+    }
     /* simplify(expr) */
     if (strcmp(node->as.call.name, "simplify") == 0 &&
         node->as.call.nargs == 1) {
@@ -592,6 +603,27 @@ static int process_input(const char *input, int batch_mode) {
         ast_free(result);
       } else {
         print_error("cannot integrate expression");
+      }
+      parse_result_free(&pr);
+      return result ? 0 : 1;
+    }
+
+    if (strcmp(pr.root->as.call.name, "det") == 0 &&
+        pr.root->as.call.nargs == 1) {
+      AstNode *arg =
+          substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
+      arg = resolve_symbolic(arg, &global_symtab);
+      arg = substitute_vars(arg, &global_symtab);
+      AstNode *result = sym_det(arg);
+      ast_free(arg);
+      if (result) {
+        result = sym_simplify(result);
+        char *s = ast_to_string(result);
+        output_str(s, batch_mode);
+        free(s);
+        ast_free(result);
+      } else {
+        print_error("cannot compute determinant (not a square matrix)");
       }
       parse_result_free(&pr);
       return result ? 0 : 1;

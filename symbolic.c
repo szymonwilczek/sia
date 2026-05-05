@@ -1012,3 +1012,65 @@ AstNode *sym_integrate(const AstNode *expr, const char *var) {
 
   return NULL;
 }
+
+static AstNode *sym_det_recursive(AstNode **elems, size_t n, size_t stride) {
+  if (n == 1)
+    return ast_clone(elems[0]);
+
+  if (n == 2) {
+    AstNode *ad =
+        ast_binop(OP_MUL, ast_clone(elems[0]), ast_clone(elems[stride + 1]));
+    AstNode *bc =
+        ast_binop(OP_MUL, ast_clone(elems[1]), ast_clone(elems[stride]));
+    AstNode *res = ast_binop(OP_SUB, ad, bc);
+    res = sym_simplify(res);
+    res = sym_expand(res);
+    res = ast_canonicalize(res);
+    res = sym_collect_terms(res);
+    return sym_simplify(res);
+  }
+
+  AstNode **sub = malloc((n - 1) * (n - 1) * sizeof(AstNode *));
+  AstNode *det = NULL;
+
+  for (size_t col = 0; col < n; col++) {
+    size_t si = 0;
+    for (size_t r = 1; r < n; r++)
+      for (size_t c = 0; c < n; c++) {
+        if (c == col)
+          continue;
+        sub[si++] = elems[r * stride + c];
+      }
+
+    AstNode *cofactor = sym_det_recursive(sub, n - 1, n - 1);
+    AstNode *term = ast_binop(OP_MUL, ast_clone(elems[col]), cofactor);
+    term = sym_simplify(term);
+
+    if (!det) {
+      det = col % 2 == 0 ? term : sym_simplify(ast_unary_neg(term));
+    } else {
+      if (col % 2 == 0)
+        det = ast_binop(OP_ADD, det, term);
+      else
+        det = ast_binop(OP_SUB, det, term);
+    }
+  }
+
+  free(sub);
+
+  det = sym_simplify(det);
+  det = sym_expand(det);
+  det = ast_canonicalize(det);
+  det = sym_collect_terms(det);
+  return sym_simplify(det);
+}
+
+AstNode *sym_det(const AstNode *matrix) {
+  if (!matrix || matrix->type != AST_MATRIX)
+    return NULL;
+  if (matrix->as.matrix.rows != matrix->as.matrix.cols)
+    return NULL;
+
+  return sym_det_recursive(matrix->as.matrix.elements, matrix->as.matrix.rows,
+                           matrix->as.matrix.cols);
+}
