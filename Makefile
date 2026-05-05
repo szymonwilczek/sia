@@ -1,5 +1,5 @@
-VERSION   := 0.4.1
-CODENAME  := "Elegant Euler"
+VERSION   := 0.5.0
+CODENAME  := "Dirichlet's Dream"
 
 CC      ?= gcc
 CFLAGS  := -std=c11 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
