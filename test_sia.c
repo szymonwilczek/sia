@@ -620,10 +620,25 @@ static void test_expand(void) {
   ParseResult r = parse("(x+1)^2");
   AstNode *expr = ast_clone(r.root);
   expr = sym_expand(expr);
-  expr = canonicalize(expr);
+  expr = ast_canonicalize(expr);
   expr = sym_collect_terms(expr);
   char *str = ast_to_string(expr);
   ASSERT_STR_EQ(str, "1 + 2*x + x^2");
+  free(str);
+  ast_free(expr);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_matrix_expand(void) {
+  TEST("expand: [[x, 1], [1, x]]^2 -> [1 + x^2, 2*x; 2*x, 1 + x^2]");
+  ParseResult r = parse("[[x, 1], [1, x]]^2");
+  AstNode *expr = ast_clone(r.root);
+  expr = sym_expand(expr);
+  expr = ast_canonicalize(expr);
+  expr = sym_collect_terms(expr);
+  char *str = ast_to_string(expr);
+  ASSERT_STR_EQ(str, "[1 + x^2, 2*x; 2*x, 1 + x^2]");
   free(str);
   ast_free(expr);
   parse_result_free(&r);
@@ -891,9 +906,9 @@ static void test_integrate_1_over_x(void) {
 }
 
 static void test_integrate_1_div_x(void) {
-  TEST("int: integral(1/x, x) via canonicalize = ln(x)");
+  TEST("int: integral(1/x, x) via ast_canonicalize = ln(x)");
   ParseResult r = parse("1/x");
-  AstNode *expr = canonicalize(ast_clone(r.root));
+  AstNode *expr = ast_canonicalize(ast_clone(r.root));
   expr = sym_simplify(expr);
   AstNode *result = sym_integrate(expr, "x");
   ASSERT_TRUE(result != NULL);
@@ -907,9 +922,9 @@ static void test_integrate_1_div_x(void) {
 }
 
 static void test_integrate_x_div_x(void) {
-  TEST("int: integral(x/x, x) via canonicalize = x");
+  TEST("int: integral(x/x, x) via ast_canonicalize = x");
   ParseResult r = parse("x/x");
-  AstNode *expr = canonicalize(ast_clone(r.root));
+  AstNode *expr = ast_canonicalize(ast_clone(r.root));
   expr = sym_simplify(expr);
   AstNode *result = sym_integrate(expr, "x");
   ASSERT_TRUE(result != NULL);
@@ -924,9 +939,9 @@ static void test_integrate_x_div_x(void) {
 }
 
 static void test_integrate_rational(void) {
-  TEST("int: integral((x^3 + x^2) / x^2, x) via canonicalize");
+  TEST("int: integral((x^3 + x^2) / x^2, x) via ast_canonicalize");
   ParseResult r = parse("(x^3 + x^2) / x^2");
-  AstNode *expr = canonicalize(ast_clone(r.root));
+  AstNode *expr = ast_canonicalize(ast_clone(r.root));
   expr = sym_simplify(expr);
   AstNode *result = sym_integrate(expr, "x");
   ASSERT_TRUE(result != NULL);
@@ -945,7 +960,7 @@ static void test_integrate_rational(void) {
 static void test_canonical_sub_to_add(void) {
   TEST("canonical: A - B -> A + (-1)*B");
   ParseResult r = parse("x - y");
-  AstNode *c = canonicalize(ast_clone(r.root));
+  AstNode *c = ast_canonicalize(ast_clone(r.root));
   ASSERT_EQ(c->type, AST_BINOP);
   ASSERT_EQ(c->as.binop.op, OP_ADD);
   ast_free(c);
@@ -956,7 +971,7 @@ static void test_canonical_sub_to_add(void) {
 static void test_canonical_div_to_mul(void) {
   TEST("canonical: A / B -> A * B^(-1)");
   ParseResult r = parse("x / y");
-  AstNode *c = canonicalize(ast_clone(r.root));
+  AstNode *c = ast_canonicalize(ast_clone(r.root));
   ASSERT_EQ(c->type, AST_BINOP);
   ASSERT_EQ(c->as.binop.op, OP_MUL);
   ASSERT_EQ(c->as.binop.right->type, AST_BINOP);
@@ -969,8 +984,8 @@ static void test_canonical_div_to_mul(void) {
 static void test_canonical_sort(void) {
   TEST("canonical: commutative sort x + 2 -> 2 + x");
   ParseResult r = parse("x + 2");
-  AstNode *c = canonicalize(ast_clone(r.root));
-  /* after canonicalize, constants sort before variables */
+  AstNode *c = ast_canonicalize(ast_clone(r.root));
+  /* after ast_canonicalize, constants sort before variables */
   ASSERT_EQ(c->type, AST_BINOP);
   ASSERT_EQ(c->as.binop.op, OP_ADD);
   /* left should be number (sort key 0), right variable (sort key 1) */
@@ -1382,6 +1397,7 @@ int main(void) {
   test_simplify_exp_ln();
   test_simplify_distributive();
   test_expand();
+  test_matrix_expand();
 
   printf("\n[Symbolic - Differentiation]\n");
   test_diff_constant();

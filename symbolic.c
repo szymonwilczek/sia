@@ -600,7 +600,7 @@ AstNode *sym_collect_terms(AstNode *expr) {
 
   if (!res)
     return ast_number(0);
-  return canonicalize(res);
+  return ast_canonicalize(res);
 }
 
 static AstNode *expand_pow(AstNode *base, int n) {
@@ -613,6 +613,41 @@ static AstNode *expand_pow(AstNode *base, int n) {
   AstNode *t2 = ast_binop(OP_MUL, B, rest);
   return sym_simplify(
       ast_binop(base->as.binop.op, sym_simplify(t1), sym_simplify(t2)));
+}
+
+static AstNode *sym_matrix_mul(const AstNode *m1, const AstNode *m2) {
+  if (m1->type != AST_MATRIX || m2->type != AST_MATRIX)
+    return NULL;
+  if (m1->as.matrix.cols != m2->as.matrix.rows)
+    return NULL;
+
+  size_t rows = m1->as.matrix.rows;
+  size_t cols = m2->as.matrix.cols;
+  size_t inner = m1->as.matrix.cols;
+
+  AstNode **elems = malloc(rows * cols * sizeof(AstNode *));
+  for (size_t r = 0; r < rows; r++) {
+    for (size_t c = 0; c < cols; c++) {
+      AstNode *sum = NULL;
+      for (size_t k = 0; k < inner; k++) {
+        AstNode *left = ast_clone(m1->as.matrix.elements[r * inner + k]);
+        AstNode *right = ast_clone(m2->as.matrix.elements[k * cols + c]);
+        AstNode *prod = ast_binop(OP_MUL, left, right);
+        if (!sum) {
+          sum = prod;
+        } else {
+          sum = ast_binop(OP_ADD, sum, prod);
+        }
+      }
+      AstNode *expanded = sym_expand(sum);
+      expanded = ast_canonicalize(expanded);
+      expanded = sym_collect_terms(expanded);
+      elems[r * cols + c] = sym_simplify(expanded);
+    }
+  }
+  AstNode *res = ast_matrix(elems, rows, cols);
+  free(elems);
+  return res;
 }
 
 AstNode *sym_expand(AstNode *node) {
@@ -654,6 +689,23 @@ AstNode *sym_expand(AstNode *node) {
       int n = (int)R->as.number;
       if (n == R->as.number && n >= 2 && n <= 10) {
         AstNode *res = expand_pow(L, n);
+        ast_free(L);
+        ast_free(R);
+        return res;
+      }
+    }
+
+    /* expand M^n for matrices */
+    if (node->as.binop.op == OP_POW && R->type == AST_NUMBER &&
+        L->type == AST_MATRIX) {
+      int n = (int)R->as.number;
+      if (n == R->as.number && n >= 2 && n <= 10) {
+        AstNode *res = ast_clone(L);
+        for (int i = 1; i < n; i++) {
+          AstNode *next = sym_matrix_mul(res, L);
+          ast_free(res);
+          res = next;
+        }
         ast_free(L);
         ast_free(R);
         return res;
