@@ -261,18 +261,23 @@ AstNode *sym_simplify(AstNode *node) {
       ast_free(node);
       return ast_number(0);
     }
-    /* sin(u)^2 + cos(u)^2 -> 1 */
-    if (is_call1_squared(L, "sin") && is_call1_squared(R, "cos") &&
-        ast_equal(L->as.binop.left->as.call.args[0],
-                  R->as.binop.left->as.call.args[0])) {
-      ast_free(node);
-      return ast_number(1);
-    }
+    /* cos(u)^2 - sin(u)^2 -> cos(2*u) */
     if (is_call1_squared(L, "cos") && is_call1_squared(R, "sin") &&
         ast_equal(L->as.binop.left->as.call.args[0],
                   R->as.binop.left->as.call.args[0])) {
+      AstNode *arg = ast_clone(L->as.binop.left->as.call.args[0]);
       ast_free(node);
-      return ast_number(1);
+      AstNode *two_u = ast_binop(OP_MUL, ast_number(2), arg);
+      return ast_func_call("cos", 3, (AstNode *[]){two_u}, 1);
+    }
+    /* sin(u)^2 - cos(u)^2 -> -cos(2*u) */
+    if (is_call1_squared(L, "sin") && is_call1_squared(R, "cos") &&
+        ast_equal(L->as.binop.left->as.call.args[0],
+                  R->as.binop.left->as.call.args[0])) {
+      AstNode *arg = ast_clone(L->as.binop.left->as.call.args[0]);
+      ast_free(node);
+      AstNode *two_u = ast_binop(OP_MUL, ast_number(2), arg);
+      return ast_unary_neg(ast_func_call("cos", 3, (AstNode *[]){two_u}, 1));
     }
     break;
 
@@ -587,6 +592,87 @@ AstNode *sym_collect_terms(AstNode *expr) {
       }
     } else {
       terms[i] = ast_number(c_i);
+    }
+  }
+
+  /* trig identity: c*sin(u)^2 + c*cos(u)^2 -> c
+   *                c*cos(u)^2 - c*sin(u)^2 -> c*cos(2*u) */
+  for (size_t i = 0; i < count; i++) {
+    if (!terms[i])
+      continue;
+    double c_i = 1.0;
+    AstNode *base_i = terms[i];
+    for (;;) {
+      if (base_i->type == AST_BINOP && base_i->as.binop.op == OP_MUL &&
+          base_i->as.binop.left->type == AST_NUMBER) {
+        c_i *= base_i->as.binop.left->as.number;
+        base_i = base_i->as.binop.right;
+      } else if (base_i->type == AST_UNARY_NEG) {
+        c_i *= -1;
+        base_i = base_i->as.unary.operand;
+      } else {
+        break;
+      }
+    }
+    if (!is_call1_squared(base_i, "sin") && !is_call1_squared(base_i, "cos"))
+      continue;
+    int i_is_sin = is_call1_squared(base_i, "sin");
+    AstNode *arg_i = base_i->as.binop.left->as.call.args[0];
+
+    for (size_t j = i + 1; j < count; j++) {
+      if (!terms[j])
+        continue;
+      double c_j = 1.0;
+      AstNode *base_j = terms[j];
+      for (;;) {
+        if (base_j->type == AST_BINOP && base_j->as.binop.op == OP_MUL &&
+            base_j->as.binop.left->type == AST_NUMBER) {
+          c_j *= base_j->as.binop.left->as.number;
+          base_j = base_j->as.binop.right;
+        } else if (base_j->type == AST_UNARY_NEG) {
+          c_j *= -1;
+          base_j = base_j->as.unary.operand;
+        } else {
+          break;
+        }
+      }
+      int j_is_sin = is_call1_squared(base_j, "sin");
+      int j_is_cos = is_call1_squared(base_j, "cos");
+      if (!j_is_sin && !j_is_cos)
+        continue;
+      if (i_is_sin == j_is_sin)
+        continue;
+      AstNode *arg_j = base_j->as.binop.left->as.call.args[0];
+      if (!ast_equal(arg_i, arg_j))
+        continue;
+
+      if (c_i == c_j) {
+        /* c*sin^2(u) + c*cos^2(u) -> c */
+        ast_free(terms[i]);
+        ast_free(terms[j]);
+        terms[i] = ast_number(c_i);
+        terms[j] = NULL;
+        break;
+      }
+
+      /* c*cos^2(u) + (-c)*sin^2(u) -> c*cos(2*u) */
+      double c_cos = i_is_sin ? c_j : c_i;
+      double c_sin = i_is_sin ? c_i : c_j;
+      if (c_cos == -c_sin) {
+        AstNode *two_u = ast_binop(OP_MUL, ast_number(2), ast_clone(arg_i));
+        AstNode *cos2u = ast_func_call("cos", 3, (AstNode *[]){two_u}, 1);
+        ast_free(terms[i]);
+        ast_free(terms[j]);
+        if (c_cos == 1.0) {
+          terms[i] = cos2u;
+        } else if (c_cos == -1.0) {
+          terms[i] = sym_simplify(ast_unary_neg(cos2u));
+        } else {
+          terms[i] = ast_binop(OP_MUL, ast_number(c_cos), cos2u);
+        }
+        terms[j] = NULL;
+        break;
+      }
     }
   }
 

@@ -1387,6 +1387,72 @@ static void test_sym_det_nonsquare(void) {
   PASS();
 }
 
+static void test_trig_pythagorean_scattered(void) {
+  TEST("trig: sin(x)^2 + y + cos(x)^2 -> 1 + y");
+  ParseResult r = parse("sin(x)^2 + y + cos(x)^2");
+  AstNode *e = sym_expand(r.root);
+  e = ast_canonicalize(e);
+  e = sym_collect_terms(e);
+  char *s = ast_to_string(e);
+  ASSERT_STR_EQ(s, "1 + y");
+  free(s);
+  ast_free(e);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_trig_cos2_minus_sin2(void) {
+  TEST("trig: cos(x)^2 - sin(x)^2 -> cos(2*x)");
+  ParseResult r = parse("cos(x)^2 - sin(x)^2");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "cos(2*x)");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_trig_sin2_minus_cos2(void) {
+  TEST("trig: sin(x)^2 - cos(x)^2 -> -cos(2*x)");
+  ParseResult r = parse("sin(x)^2 - cos(x)^2");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "(-cos(2*x))");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_trig_scaled_cos2_sin2(void) {
+  TEST("trig: 3*cos(x)^2 - 3*sin(x)^2 -> 3*cos(2*x)");
+  ParseResult r = parse("3*cos(x)^2 - 3*sin(x)^2");
+  AstNode *e = sym_expand(r.root);
+  e = ast_canonicalize(e);
+  e = sym_collect_terms(e);
+  char *s = ast_to_string(e);
+  ASSERT_STR_EQ(s, "3*cos(2*x)");
+  free(s);
+  ast_free(e);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_trig_pythagorean_complex_arg(void) {
+  TEST("trig: sin(x^2+1)^2 + cos(x^2+1)^2 -> 1");
+  ParseResult r = parse("sin(x^2+1)^2 + cos(x^2+1)^2");
+  AstNode *e = sym_expand(r.root);
+  e = ast_canonicalize(e);
+  e = sym_collect_terms(e);
+  char *s = ast_to_string(e);
+  ASSERT_STR_EQ(s, "1");
+  free(s);
+  ast_free(e);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_ast_matrix_clone(void) {
   TEST("ast: matrix clone round-trip");
   ParseResult r = parse("[[1,2],[3,4]]");
@@ -1526,6 +1592,11 @@ int main(void) {
   test_sym_det_2x2_numeric();
   test_sym_det_3x3();
   test_sym_det_nonsquare();
+  test_trig_pythagorean_scattered();
+  test_trig_cos2_minus_sin2();
+  test_trig_sin2_minus_cos2();
+  test_trig_scaled_cos2_sin2();
+  test_trig_pythagorean_complex_arg();
 
   printf("\n=== Results: %d/%d passed ===\n", tests_passed, tests_run);
   return tests_passed == tests_run ? 0 : 1;
