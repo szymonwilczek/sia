@@ -615,6 +615,21 @@ static void test_simplify_distributive(void) {
   PASS();
 }
 
+static void test_expand(void) {
+  TEST("expand: (x+1)^2 -> 1 + 2*x + x^2 (or similar collected form)");
+  ParseResult r = parse("(x+1)^2");
+  AstNode *expr = ast_clone(r.root);
+  expr = sym_expand(expr);
+  expr = canonicalize(expr);
+  expr = sym_collect_terms(expr);
+  char *str = ast_to_string(expr);
+  ASSERT_STR_EQ(str, "1 + 2*x + x^2");
+  free(str);
+  ast_free(expr);
+  parse_result_free(&r);
+  PASS();
+}
+
 /* Differentiation */
 
 static void test_diff_constant(void) {
@@ -1366,6 +1381,7 @@ int main(void) {
   test_simplify_trig_pythagorean();
   test_simplify_exp_ln();
   test_simplify_distributive();
+  test_expand();
 
   printf("\n[Symbolic - Differentiation]\n");
   test_diff_constant();

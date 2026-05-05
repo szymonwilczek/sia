@@ -1,4 +1,5 @@
 #include "symbolic.h"
+#include "canonical.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -490,6 +491,179 @@ AstNode *sym_simplify(AstNode *node) {
   }
 
   return node;
+}
+
+static void flatten_add(AstNode *node, AstNode ***terms, size_t *count,
+                        size_t *cap) {
+  if (!node)
+    return;
+  if (node->type == AST_BINOP && node->as.binop.op == OP_ADD) {
+    flatten_add(node->as.binop.left, terms, count, cap);
+    flatten_add(node->as.binop.right, terms, count, cap);
+  } else if (node->type == AST_BINOP && node->as.binop.op == OP_SUB) {
+    flatten_add(node->as.binop.left, terms, count, cap);
+    AstNode *neg = sym_simplify(ast_unary_neg(ast_clone(node->as.binop.right)));
+    flatten_add(neg, terms, count, cap);
+    ast_free(neg);
+  } else {
+    if (*count >= *cap) {
+      *cap *= 2;
+      *terms = realloc(*terms, *cap * sizeof(AstNode *));
+    }
+    (*terms)[(*count)++] = ast_clone(node);
+  }
+}
+
+AstNode *sym_collect_terms(AstNode *expr) {
+  if (!expr)
+    return NULL;
+  size_t cap = 16, count = 0;
+  AstNode **terms = malloc(cap * sizeof(AstNode *));
+  flatten_add(expr, &terms, &count, &cap);
+
+  for (size_t i = 0; i < count; i++) {
+    if (!terms[i])
+      continue;
+
+    double c_i = 1.0;
+    AstNode *b_i = terms[i];
+    if (b_i->type == AST_BINOP && b_i->as.binop.op == OP_MUL &&
+        b_i->as.binop.left->type == AST_NUMBER) {
+      c_i = b_i->as.binop.left->as.number;
+      b_i = b_i->as.binop.right;
+    } else if (b_i->type == AST_NUMBER) {
+      c_i = b_i->as.number;
+      b_i = NULL;
+    }
+
+    for (size_t j = i + 1; j < count; j++) {
+      if (!terms[j])
+        continue;
+
+      double c_j = 1.0;
+      AstNode *b_j = terms[j];
+      if (b_j->type == AST_BINOP && b_j->as.binop.op == OP_MUL &&
+          b_j->as.binop.left->type == AST_NUMBER) {
+        c_j = b_j->as.binop.left->as.number;
+        b_j = b_j->as.binop.right;
+      } else if (b_j->type == AST_NUMBER) {
+        c_j = b_j->as.number;
+        b_j = NULL;
+      }
+
+      int eq = 0;
+      if (b_i == NULL && b_j == NULL)
+        eq = 1;
+      else if (b_i != NULL && b_j != NULL && ast_equal(b_i, b_j))
+        eq = 1;
+
+      if (eq) {
+        c_i += c_j;
+        ast_free(terms[j]);
+        terms[j] = NULL;
+      }
+    }
+
+    AstNode *cloned_b_i = b_i ? ast_clone(b_i) : NULL;
+    ast_free(terms[i]);
+    if (cloned_b_i) {
+      if (c_i == 0.0) {
+        ast_free(cloned_b_i);
+        terms[i] = ast_number(0);
+      } else if (c_i == 1.0) {
+        terms[i] = cloned_b_i;
+      } else if (c_i == -1.0) {
+        terms[i] = sym_simplify(ast_unary_neg(cloned_b_i));
+      } else {
+        terms[i] = ast_binop(OP_MUL, ast_number(c_i), cloned_b_i);
+      }
+    } else {
+      terms[i] = ast_number(c_i);
+    }
+  }
+
+  AstNode *res = NULL;
+  for (size_t i = 0; i < count; i++) {
+    if (!terms[i])
+      continue;
+    if (terms[i]->type == AST_NUMBER && terms[i]->as.number == 0) {
+      ast_free(terms[i]);
+      continue;
+    }
+    if (!res) {
+      res = terms[i];
+    } else {
+      res = ast_binop(OP_ADD, res, terms[i]);
+    }
+  }
+  free(terms);
+
+  if (!res)
+    return ast_number(0);
+  return canonicalize(res);
+}
+
+static AstNode *expand_pow(AstNode *base, int n) {
+  if (n == 1)
+    return sym_expand(base);
+  AstNode *rest = expand_pow(base, n - 1);
+  AstNode *A = ast_clone(base->as.binop.left);
+  AstNode *B = ast_clone(base->as.binop.right);
+  AstNode *t1 = ast_binop(OP_MUL, A, ast_clone(rest));
+  AstNode *t2 = ast_binop(OP_MUL, B, rest);
+  return sym_simplify(
+      ast_binop(base->as.binop.op, sym_simplify(t1), sym_simplify(t2)));
+}
+
+AstNode *sym_expand(AstNode *node) {
+  if (!node)
+    return NULL;
+
+  switch (node->type) {
+  case AST_NUMBER:
+  case AST_VARIABLE:
+    return ast_clone(node);
+  case AST_MATRIX: {
+    size_t total = node->as.matrix.rows * node->as.matrix.cols;
+    AstNode **elems = malloc(total * sizeof(AstNode *));
+    for (size_t i = 0; i < total; i++)
+      elems[i] = sym_expand(node->as.matrix.elements[i]);
+    AstNode *m = ast_matrix(elems, node->as.matrix.rows, node->as.matrix.cols);
+    free(elems);
+    return m;
+  }
+  case AST_UNARY_NEG:
+    return ast_unary_neg(sym_expand(node->as.unary.operand));
+  case AST_FUNC_CALL: {
+    AstNode **args = malloc(node->as.call.nargs * sizeof(AstNode *));
+    for (size_t i = 0; i < node->as.call.nargs; i++)
+      args[i] = sym_expand(node->as.call.args[i]);
+    AstNode *c = ast_func_call(node->as.call.name, strlen(node->as.call.name),
+                               args, node->as.call.nargs);
+    free(args);
+    return c;
+  }
+  case AST_BINOP: {
+    AstNode *L = sym_expand(node->as.binop.left);
+    AstNode *R = sym_expand(node->as.binop.right);
+
+    /* expand (A + B)^n and (A - B)^n for small integers n */
+    if (node->as.binop.op == OP_POW && R->type == AST_NUMBER &&
+        L->type == AST_BINOP &&
+        (L->as.binop.op == OP_ADD || L->as.binop.op == OP_SUB)) {
+      int n = (int)R->as.number;
+      if (n == R->as.number && n >= 2 && n <= 10) {
+        AstNode *res = expand_pow(L, n);
+        ast_free(L);
+        ast_free(R);
+        return res;
+      }
+    }
+
+    return sym_simplify(ast_binop(node->as.binop.op, L, R));
+  }
+  }
+  return NULL;
 }
 
 AstNode *sym_diff(const AstNode *expr, const char *var) {

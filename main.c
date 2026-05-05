@@ -366,6 +366,23 @@ static int process_input(const char *input, int batch_mode) {
       parse_result_free(&pr);
       return 0;
     }
+
+    if (strcmp(pr.root->as.call.name, "expand") == 0 &&
+        pr.root->as.call.nargs == 1) {
+
+      /* substitute known variables before expansion */
+      AstNode *expr =
+          substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
+      AstNode *expanded = sym_expand(expr);
+      expanded = canonicalize(expanded);
+      expanded = sym_collect_terms(expanded);
+      char *s = ast_to_string(expanded);
+      output_str(s, batch_mode);
+      free(s);
+      ast_free(expanded);
+      parse_result_free(&pr);
+      return 0;
+    }
   }
 
   /* substitute known variables and check for matrix expressions */
