@@ -99,10 +99,19 @@ Fraction fraction_exact_from_double(double v, int *exact) {
   Fraction f = fraction_from_double(v);
   int is_exact = 0;
   if (isfinite(v)) {
-    if (f.den != 1) {
-      is_exact = fabs((double)f.num / f.den - v) < 1e-12;
-    } else {
+    if (f.den == 1) {
       is_exact = v == (long long)v;
+    } else {
+      long long den = f.den;
+      int power_of_two = 1;
+      while (den > 1) {
+        if (den % 2 != 0) {
+          power_of_two = 0;
+          break;
+        }
+        den /= 2;
+      }
+      is_exact = power_of_two && fabs((double)f.num / f.den - v) < 1e-12;
     }
   }
   if (exact)

@@ -312,6 +312,17 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
       break;
     }
 
+    if ((strcmp(name, "log10") == 0 || strcmp(name, "log2") == 0) &&
+        node->as.call.nargs == 1) {
+      sb_puts(sb, "\\log_{");
+      sb_puts(sb, strcmp(name, "log10") == 0 ? "10" : "2");
+      sb_puts(sb, "}");
+      sb_puts(sb, "\\left(");
+      latex_node(node->as.call.args[0], sb, NULL, 0);
+      sb_puts(sb, "\\right)");
+      break;
+    }
+
     if (is_latex_func(name)) {
       sb_printf(sb, "\\%s", name);
     } else {

@@ -327,6 +327,33 @@ static void test_eval_sqrt(void) {
   PASS();
 }
 
+static void test_eval_elementary_functions(void) {
+  TEST("eval: abs(-16), log10(1000), log2(8)");
+
+  ParseResult r1 = parse("abs(-16)");
+  EvalResult e1 = eval(r1.root, NULL);
+  ASSERT_TRUE(e1.ok);
+  ASSERT_CNEAR(e1.value, c_real(16.0), 1e-9);
+  eval_result_free(&e1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("log10(1000)");
+  EvalResult e2 = eval(r2.root, NULL);
+  ASSERT_TRUE(e2.ok);
+  ASSERT_CNEAR(e2.value, c_real(3.0), 1e-9);
+  eval_result_free(&e2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("log2(8)");
+  EvalResult e3 = eval(r3.root, NULL);
+  ASSERT_TRUE(e3.ok);
+  ASSERT_CNEAR(e3.value, c_real(3.0), 1e-9);
+  eval_result_free(&e3);
+  parse_result_free(&r3);
+
+  PASS();
+}
+
 static void test_eval_pi(void) {
   TEST("eval: pi constant");
   ParseResult r = parse("pi");
@@ -505,7 +532,9 @@ static void test_complex_exact_arithmetic(void) {
   ASSERT_TRUE(prod.exact);
   ASSERT_TRUE(fraction_is(prod.re_q, 1, 2));
   ASSERT_TRUE(fraction_is_zero(prod.im_q));
-  Complex sum = c_add(c_real(1.0 / 2.0), c_real(1.0 / 3.0));
+  Complex sum =
+      c_add(c_from_fractions(fraction_make(1, 2), fraction_make(0, 1)),
+            c_from_fractions(fraction_make(1, 3), fraction_make(0, 1)));
   ASSERT_TRUE(sum.exact);
   ASSERT_TRUE(fraction_is(sum.re_q, 5, 6));
   ASSERT_TRUE(fraction_is_zero(sum.im_q));
@@ -708,6 +737,36 @@ static void test_simplify_exp_ln(void) {
   PASS();
 }
 
+static void test_simplify_elementary_functions(void) {
+  TEST("simplify: abs(-16), sqrt(49), log10(1000), log2(8)");
+
+  ParseResult r1 = parse("abs(-16)");
+  AstNode *s1 = sym_simplify(ast_clone(r1.root));
+  ASSERT_TRUE(is_num_node(s1, 16));
+  ast_free(s1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("sqrt(49)");
+  AstNode *s2 = sym_simplify(ast_clone(r2.root));
+  ASSERT_TRUE(is_num_node(s2, 7));
+  ast_free(s2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("log10(1000)");
+  AstNode *s3 = sym_simplify(ast_clone(r3.root));
+  ASSERT_TRUE(is_num_node(s3, 3));
+  ast_free(s3);
+  parse_result_free(&r3);
+
+  ParseResult r4 = parse("log2(8)");
+  AstNode *s4 = sym_simplify(ast_clone(r4.root));
+  ASSERT_TRUE(is_num_node(s4, 3));
+  ast_free(s4);
+  parse_result_free(&r4);
+
+  PASS();
+}
+
 static void test_simplify_distributive(void) {
   TEST("simplify: (x^3 + x^2) * x^(-2) -> x + 1");
   ParseResult r = parse("(x^3 + x^2) * x^(-2)");
@@ -855,6 +914,45 @@ static void test_diff_ln(void) {
   ASSERT_TRUE(d != NULL);
   char *s = ast_to_string(d);
   ASSERT_STR_EQ(s, "1/x");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_log10(void) {
+  TEST("diff: d/dx(log10(x)) = 1/(x*ln(10))");
+  ParseResult r = parse("log10(x)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "1/(x*ln(10))");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_log2(void) {
+  TEST("diff: d/dx(log2(x)) = 1/(x*ln(2))");
+  ParseResult r = parse("log2(x)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "1/(x*ln(2))");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_abs(void) {
+  TEST("diff: d/dx(abs(x)) = x/abs(x)");
+  ParseResult r = parse("abs(x)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "x/abs(x)");
   free(s);
   ast_free(d);
   parse_result_free(&r);
@@ -1627,6 +1725,36 @@ static void test_latex_number(void) {
   PASS();
 }
 
+static void test_latex_elementary_functions(void) {
+  TEST("latex: abs, sqrt, log10, log2");
+
+  ParseResult r1 = parse("abs(x)");
+  char *s1 = ast_to_latex(r1.root);
+  ASSERT_STR_EQ(s1, "\\left|x\\right|");
+  free(s1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("sqrt(x)");
+  char *s2 = ast_to_latex(r2.root);
+  ASSERT_STR_EQ(s2, "\\sqrt{x}");
+  free(s2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("log10(x)");
+  char *s3 = ast_to_latex(r3.root);
+  ASSERT_STR_EQ(s3, "\\log_{10}\\left(x\\right)");
+  free(s3);
+  parse_result_free(&r3);
+
+  ParseResult r4 = parse("log2(x)");
+  char *s4 = ast_to_latex(r4.root);
+  ASSERT_STR_EQ(s4, "\\log_{2}\\left(x\\right)");
+  free(s4);
+  parse_result_free(&r4);
+
+  PASS();
+}
+
 static void test_latex_fraction(void) {
   TEST("latex: 1/2 renders as fraction");
   AstNode *n = ast_number(0.5);
@@ -1964,6 +2092,7 @@ int main(void) {
   test_eval_functions();
   test_eval_cos();
   test_eval_sqrt();
+  test_eval_elementary_functions();
   test_eval_pi();
   test_eval_complex_expr();
   test_eval_exact_rational();
@@ -1996,6 +2125,7 @@ int main(void) {
   test_simplify_trig_tan();
   test_simplify_trig_pythagorean();
   test_simplify_exp_ln();
+  test_simplify_elementary_functions();
   test_simplify_distributive();
   test_expand();
   test_matrix_expand();
@@ -2009,6 +2139,9 @@ int main(void) {
   test_diff_cos();
   test_diff_exp();
   test_diff_ln();
+  test_diff_log10();
+  test_diff_log2();
+  test_diff_abs();
   test_diff_chain_sin_x2();
   test_diff_x_to_x();
   test_diff_asin();
@@ -2069,6 +2202,7 @@ int main(void) {
   printf("\n[LaTeX]\n");
   test_latex_number();
   test_latex_fraction();
+  test_latex_elementary_functions();
   test_latex_variable();
   test_latex_pi();
   test_latex_multichar_var();

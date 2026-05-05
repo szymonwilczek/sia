@@ -35,9 +35,7 @@ static EvalResult eval_call(const char *name, Complex *args, size_t nargs) {
       return ok(c_sqrt(a));
     if (strcmp(name, "abs") == 0)
       return ok_real(c_abs(a));
-    if (strcmp(name, "exp") == 0)
-      return ok(c_exp(a));
-    if (strcmp(name, "log") == 0) {
+    if (strcmp(name, "log10") == 0 || strcmp(name, "log") == 0) {
       if (c_is_zero(a))
         return fail("domain error: log of zero");
       if (c_is_real(a) && a.re > 0)
@@ -45,6 +43,16 @@ static EvalResult eval_call(const char *name, Complex *args, size_t nargs) {
       Complex r = c_div(c_log(a), c_real(log(10.0)));
       return ok(r);
     }
+    if (strcmp(name, "log2") == 0) {
+      if (c_is_zero(a))
+        return fail("domain error: log of zero");
+      if (c_is_real(a) && a.re > 0)
+        return ok_real(log2(a.re));
+      Complex r = c_div(c_log(a), c_real(log(2.0)));
+      return ok(r);
+    }
+    if (strcmp(name, "exp") == 0)
+      return ok(c_exp(a));
     if (strcmp(name, "ln") == 0) {
       if (c_is_zero(a))
         return fail("domain error: ln of zero");

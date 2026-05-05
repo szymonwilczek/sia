@@ -27,6 +27,39 @@ static int is_call1_squared(const AstNode *n, const char *fname) {
          is_number(n->as.binop.right, 2) && is_call1(n->as.binop.left, fname);
 }
 
+static int fold_unary_numeric_call(const char *name, Complex arg,
+                                   Complex *out) {
+  if (strcmp(name, "abs") == 0) {
+    *out = c_real(c_abs(arg));
+    return 1;
+  }
+  if (strcmp(name, "sqrt") == 0) {
+    *out = c_sqrt(arg);
+    return 1;
+  }
+  if (strcmp(name, "log10") == 0 || strcmp(name, "log") == 0) {
+    if (c_is_zero(arg))
+      return 0;
+    if (c_is_real(arg) && arg.re > 0) {
+      *out = c_real(log10(arg.re));
+    } else {
+      *out = c_div(c_log(arg), c_real(log(10.0)));
+    }
+    return 1;
+  }
+  if (strcmp(name, "log2") == 0) {
+    if (c_is_zero(arg))
+      return 0;
+    if (c_is_real(arg) && arg.re > 0) {
+      *out = c_real(log2(arg.re));
+    } else {
+      *out = c_div(c_log(arg), c_real(log(2.0)));
+    }
+    return 1;
+  }
+  return 0;
+}
+
 int sym_contains_var(const AstNode *n, const char *var) {
   if (!n)
     return 0;
@@ -117,7 +150,7 @@ AstNode *sym_simplify(AstNode *node) {
     if (is_num(node->as.unary.operand)) {
       Complex z = c_neg(node->as.unary.operand->as.number);
       ast_free(node);
-      return ast_complex(z.re, z.im);
+      return ast_number_complex(z);
     }
     /* -(-x) -> x */
     if (node->as.unary.operand->type == AST_UNARY_NEG) {
@@ -131,6 +164,14 @@ AstNode *sym_simplify(AstNode *node) {
   case AST_FUNC_CALL:
     for (size_t i = 0; i < node->as.call.nargs; i++)
       node->as.call.args[i] = sym_simplify(node->as.call.args[i]);
+    if (node->as.call.nargs == 1 && is_num(node->as.call.args[0])) {
+      Complex folded;
+      if (fold_unary_numeric_call(node->as.call.name,
+                                  node->as.call.args[0]->as.number, &folded)) {
+        ast_free(node);
+        return ast_number_complex(folded);
+      }
+    }
     /* exp(ln(x)) -> x */
     if (is_call1(node, "exp") && is_call1(node->as.call.args[0], "ln")) {
       AstNode *inner = ast_clone(node->as.call.args[0]->as.call.args[0]);
@@ -181,7 +222,7 @@ AstNode *sym_simplify(AstNode *node) {
       return node;
     }
     ast_free(node);
-    return ast_complex(result.re, result.im);
+    return ast_number_complex(result);
   }
 
   switch (op) {
@@ -211,7 +252,7 @@ AstNode *sym_simplify(AstNode *node) {
           c_add(L->as.binop.left->as.number, R->as.binop.left->as.number);
       AstNode *base = ast_clone(L->as.binop.right);
       ast_free(node);
-      return sym_simplify(ast_binop(OP_MUL, ast_complex(c.re, c.im), base));
+      return sym_simplify(ast_binop(OP_MUL, ast_number_complex(c), base));
     }
     /* c1*E + E -> (c1+1)*E */
     if (L->type == AST_BINOP && L->as.binop.op == OP_MUL &&
@@ -221,7 +262,7 @@ AstNode *sym_simplify(AstNode *node) {
       AstNode *base = L->as.binop.right;
       L->as.binop.right = NULL;
       ast_free(node);
-      return sym_simplify(ast_binop(OP_MUL, ast_complex(c.re, c.im), base));
+      return sym_simplify(ast_binop(OP_MUL, ast_number_complex(c), base));
     }
     /* E + c*E -> (c+1)*E */
     if (R->type == AST_BINOP && R->as.binop.op == OP_MUL &&
@@ -230,7 +271,7 @@ AstNode *sym_simplify(AstNode *node) {
       node->as.binop.left = NULL;
       AstNode *base = ast_clone(L);
       ast_free(node);
-      return sym_simplify(ast_binop(OP_MUL, ast_complex(c.re, c.im), base));
+      return sym_simplify(ast_binop(OP_MUL, ast_number_complex(c), base));
     }
     /* sin(u)^2 + cos(u)^2 -> 1 */
     if (is_call1_squared(L, "sin") && is_call1_squared(R, "cos") &&
@@ -333,7 +374,7 @@ AstNode *sym_simplify(AstNode *node) {
       AstNode *base = R->as.binop.right;
       R->as.binop.right = NULL;
       ast_free(node);
-      return sym_simplify(ast_binop(OP_MUL, ast_complex(c.re, c.im), base));
+      return sym_simplify(ast_binop(OP_MUL, ast_number_complex(c), base));
     }
     /* x * x -> x^2 */
     if (ast_equal(L, R)) {
@@ -465,7 +506,7 @@ AstNode *sym_simplify(AstNode *node) {
       Complex c = c_div(L->as.binop.left->as.number, R->as.number);
       AstNode *base = ast_clone(L->as.binop.right);
       ast_free(node);
-      return sym_simplify(ast_binop(OP_MUL, ast_complex(c.re, c.im), base));
+      return sym_simplify(ast_binop(OP_MUL, ast_number_complex(c), base));
     }
     /* sin(u) / cos(u) -> tan(u) */
     if (is_call1(L, "sin") && is_call1(R, "cos") &&
@@ -608,10 +649,10 @@ AstNode *sym_collect_terms(AstNode *expr) {
       } else if (c_is_minus_one(c_i)) {
         terms[i] = sym_simplify(ast_unary_neg(cloned_b_i));
       } else {
-        terms[i] = ast_binop(OP_MUL, ast_complex(c_i.re, c_i.im), cloned_b_i);
+        terms[i] = ast_binop(OP_MUL, ast_number_complex(c_i), cloned_b_i);
       }
     } else {
-      terms[i] = ast_complex(c_i.re, c_i.im);
+      terms[i] = ast_number_complex(c_i);
     }
   }
 
@@ -670,7 +711,7 @@ AstNode *sym_collect_terms(AstNode *expr) {
         /* c*sin^2(u) + c*cos^2(u) -> c */
         ast_free(terms[i]);
         ast_free(terms[j]);
-        terms[i] = ast_complex(c_i.re, c_i.im);
+        terms[i] = ast_number_complex(c_i);
         terms[j] = NULL;
         break;
       }
@@ -689,7 +730,7 @@ AstNode *sym_collect_terms(AstNode *expr) {
         } else if (c_is_minus_one(ci_c)) {
           terms[i] = sym_simplify(ast_unary_neg(cos2u));
         } else {
-          terms[i] = ast_binop(OP_MUL, ast_complex(ci_c.re, ci_c.im), cos2u);
+          terms[i] = ast_binop(OP_MUL, ast_number_complex(ci_c), cos2u);
         }
         terms[j] = NULL;
         break;
@@ -711,7 +752,7 @@ AstNode *sym_collect_terms(AstNode *expr) {
   if (has_const && !c_is_zero(const_sum)) {
     for (size_t i = 0; i < count; i++) {
       if (!terms[i]) {
-        terms[i] = ast_complex(const_sum.re, const_sum.im);
+        terms[i] = ast_number_complex(const_sum);
         break;
       }
     }
@@ -969,11 +1010,16 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
                     ast_number(2)));
     } else if (strcmp(name, "ln") == 0) {
       outer_d = ast_binop(OP_DIV, ast_number(1), ast_clone(inner));
-    } else if (strcmp(name, "log") == 0) {
+    } else if (strcmp(name, "log") == 0 || strcmp(name, "log10") == 0) {
       /* d/dx log10(u) = 1/(u * ln(10)) */
-      outer_d =
-          ast_binop(OP_DIV, ast_number(1),
-                    ast_binop(OP_MUL, ast_clone(inner), ast_number(log(10.0))));
+      AstNode *ln10 = ast_func_call("ln", 2, (AstNode *[]){ast_number(10)}, 1);
+      outer_d = ast_binop(OP_DIV, ast_number(1),
+                          ast_binop(OP_MUL, ast_clone(inner), ln10));
+    } else if (strcmp(name, "log2") == 0) {
+      /* d/dx log2(u) = 1/(u * ln(2)) */
+      AstNode *ln2 = ast_func_call("ln", 2, (AstNode *[]){ast_number(2)}, 1);
+      outer_d = ast_binop(OP_DIV, ast_number(1),
+                          ast_binop(OP_MUL, ast_clone(inner), ln2));
     } else if (strcmp(name, "exp") == 0) {
       outer_d = ast_clone(expr);
     } else if (strcmp(name, "sqrt") == 0) {
@@ -982,6 +1028,10 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
           ast_binop(
               OP_MUL, ast_number(2),
               ast_func_call("sqrt", 4, (AstNode *[]){ast_clone(inner)}, 1)));
+    } else if (strcmp(name, "abs") == 0) {
+      outer_d = ast_binop(
+          OP_DIV, ast_clone(inner),
+          ast_func_call("abs", 3, (AstNode *[]){ast_clone(inner)}, 1));
     } else if (strcmp(name, "asin") == 0) {
       /* 1/sqrt(1-u^2) */
       outer_d = ast_binop(OP_DIV, ast_number(1),

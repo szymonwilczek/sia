@@ -50,6 +50,7 @@ struct AstNode {
 };
 
 AstNode *ast_number(double val);
+AstNode *ast_number_complex(Complex value);
 AstNode *ast_complex(double re, double im);
 AstNode *ast_variable(const char *name, size_t len);
 AstNode *ast_binop(BinOpKind op, AstNode *left, AstNode *right);

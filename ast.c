@@ -29,6 +29,13 @@ AstNode *ast_number(double val) {
   return n;
 }
 
+AstNode *ast_number_complex(Complex value) {
+  AstNode *n = xmalloc(sizeof *n);
+  n->type = AST_NUMBER;
+  n->as.number = value;
+  return n;
+}
+
 AstNode *ast_complex(double re, double im) {
   AstNode *n = xmalloc(sizeof *n);
   n->type = AST_NUMBER;
@@ -90,7 +97,7 @@ AstNode *ast_clone(const AstNode *node) {
 
   switch (node->type) {
   case AST_NUMBER:
-    return ast_complex(node->as.number.re, node->as.number.im);
+    return ast_number_complex(node->as.number);
   case AST_VARIABLE: {
     size_t len = strlen(node->as.variable);
     return ast_variable(node->as.variable, len);
