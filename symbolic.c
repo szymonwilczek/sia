@@ -642,6 +642,12 @@ static AstNode *sym_matrix_mul(const AstNode *m1, const AstNode *m2) {
       AstNode *expanded = sym_expand(sum);
       expanded = ast_canonicalize(expanded);
       expanded = sym_collect_terms(expanded);
+      expanded = sym_simplify(expanded);
+
+      /* re-expand to catch OP_POW created by sym_simplify (A*A -> A^2) */
+      expanded = sym_expand(expanded);
+      expanded = ast_canonicalize(expanded);
+      expanded = sym_collect_terms(expanded);
       elems[r * cols + c] = sym_simplify(expanded);
     }
   }
