@@ -93,7 +93,7 @@ static void sort_commutative(AstNode *node) {
   }
 }
 
-AstNode *canonicalize(AstNode *node) {
+AstNode *ast_canonicalize(AstNode *node) {
   if (!node)
     return NULL;
 
@@ -105,17 +105,18 @@ AstNode *canonicalize(AstNode *node) {
   case AST_MATRIX: {
     size_t total = node->as.matrix.rows * node->as.matrix.cols;
     for (size_t i = 0; i < total; i++)
-      node->as.matrix.elements[i] = canonicalize(node->as.matrix.elements[i]);
+      node->as.matrix.elements[i] =
+          ast_canonicalize(node->as.matrix.elements[i]);
     return node;
   }
 
   case AST_UNARY_NEG:
-    node->as.unary.operand = canonicalize(node->as.unary.operand);
+    node->as.unary.operand = ast_canonicalize(node->as.unary.operand);
     return node;
 
   case AST_FUNC_CALL:
     for (size_t i = 0; i < node->as.call.nargs; i++)
-      node->as.call.args[i] = canonicalize(node->as.call.args[i]);
+      node->as.call.args[i] = ast_canonicalize(node->as.call.args[i]);
     return node;
 
   case AST_BINOP:
@@ -136,8 +137,8 @@ AstNode *canonicalize(AstNode *node) {
         ast_binop(OP_POW, node->as.binop.right, ast_number(-1));
   }
 
-  node->as.binop.left = canonicalize(node->as.binop.left);
-  node->as.binop.right = canonicalize(node->as.binop.right);
+  node->as.binop.left = ast_canonicalize(node->as.binop.left);
+  node->as.binop.right = ast_canonicalize(node->as.binop.right);
 
   sort_commutative(node);
 

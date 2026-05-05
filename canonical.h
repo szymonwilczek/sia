@@ -3,6 +3,6 @@
 
 #include "ast.h"
 
-AstNode *canonicalize(AstNode *node);
+AstNode *ast_canonicalize(AstNode *node);
 
 #endif
