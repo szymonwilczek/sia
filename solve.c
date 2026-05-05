@@ -1,6 +1,7 @@
 #include "solve.h"
 #include "canonical.h"
 #include "eval.h"
+#include "logarithm.h"
 #include "symbolic.h"
 #include <math.h>
 #include <stdio.h>
@@ -254,6 +255,55 @@ SolveResult sym_solve(const AstNode *expr, const char *var, Complex x0,
                       const SymTab *st) {
   if (!expr || !var)
     return fail("null expression or variable");
+
+  if (expr->type == AST_BINOP && expr->as.binop.op == OP_SUB) {
+    const AstNode *lhs = expr->as.binop.left;
+    const AstNode *rhs = expr->as.binop.right;
+
+    if (log_kind(lhs) != LOG_KIND_NONE && !sym_contains_var(rhs, var)) {
+      AstNode *root_expr = log_solve_call(lhs, rhs, var);
+      if (root_expr) {
+        root_expr = sym_simplify(root_expr);
+        EvalResult er = eval(root_expr, st);
+        ast_free(root_expr);
+        if (!er.ok)
+          return fail(er.error ? er.error : "evaluation error during solve");
+        SolveResult r = ok_roots(&er.value, 1);
+        eval_result_free(&er);
+        return r;
+      }
+    }
+
+    if (log_kind(rhs) != LOG_KIND_NONE && !sym_contains_var(lhs, var)) {
+      AstNode *root_expr = log_solve_call(rhs, lhs, var);
+      if (root_expr) {
+        root_expr = sym_simplify(root_expr);
+        EvalResult er = eval(root_expr, st);
+        ast_free(root_expr);
+        if (!er.ok)
+          return fail(er.error ? er.error : "evaluation error during solve");
+        SolveResult r = ok_roots(&er.value, 1);
+        eval_result_free(&er);
+        return r;
+      }
+    }
+  }
+
+  if (log_kind(expr) != LOG_KIND_NONE && !sym_contains_var(expr, var)) {
+    AstNode *zero = ast_number(0);
+    AstNode *root_expr = log_solve_call(expr, zero, var);
+    ast_free(zero);
+    if (root_expr) {
+      root_expr = sym_simplify(root_expr);
+      EvalResult er = eval(root_expr, st);
+      ast_free(root_expr);
+      if (!er.ok)
+        return fail(er.error ? er.error : "evaluation error during solve");
+      SolveResult r = ok_roots(&er.value, 1);
+      eval_result_free(&er);
+      return r;
+    }
+  }
 
   /* try polynomial extraction up to degree 2 */
   Complex coeffs[3];

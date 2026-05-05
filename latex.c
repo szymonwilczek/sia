@@ -1,5 +1,6 @@
 #include "latex.h"
 #include "fractions.h"
+#include "logarithm.h"
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -296,6 +297,33 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
   }
 
   case AST_FUNC_CALL: {
+    LogKind kind = log_kind(node);
+
+    if (kind == LOG_KIND_LN) {
+      sb_puts(sb, "\\ln");
+      sb_puts(sb, "\\left(");
+      latex_node(node->as.call.args[0], sb, NULL, 0);
+      sb_puts(sb, "\\right)");
+      break;
+    }
+
+    if (kind == LOG_KIND_BASE10 || kind == LOG_KIND_BASE2 ||
+        kind == LOG_KIND_GENERIC) {
+      sb_puts(sb, "\\log_{");
+      if (kind == LOG_KIND_BASE10) {
+        sb_puts(sb, "10");
+      } else if (kind == LOG_KIND_BASE2) {
+        sb_puts(sb, "2");
+      } else {
+        latex_node(node->as.call.args[1], sb, NULL, 0);
+      }
+      sb_puts(sb, "}");
+      sb_puts(sb, "\\left(");
+      latex_node(node->as.call.args[0], sb, NULL, 0);
+      sb_puts(sb, "\\right)");
+      break;
+    }
+
     const char *name = node->as.call.name;
 
     if (strcmp(name, "sqrt") == 0 && node->as.call.nargs == 1) {
@@ -309,17 +337,6 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
       sb_puts(sb, "\\left|");
       latex_node(node->as.call.args[0], sb, NULL, 0);
       sb_puts(sb, "\\right|");
-      break;
-    }
-
-    if ((strcmp(name, "log10") == 0 || strcmp(name, "log2") == 0) &&
-        node->as.call.nargs == 1) {
-      sb_puts(sb, "\\log_{");
-      sb_puts(sb, strcmp(name, "log10") == 0 ? "10" : "2");
-      sb_puts(sb, "}");
-      sb_puts(sb, "\\left(");
-      latex_node(node->as.call.args[0], sb, NULL, 0);
-      sb_puts(sb, "\\right)");
       break;
     }
 

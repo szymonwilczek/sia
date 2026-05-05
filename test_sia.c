@@ -328,7 +328,7 @@ static void test_eval_sqrt(void) {
 }
 
 static void test_eval_elementary_functions(void) {
-  TEST("eval: abs(-16), log10(1000), log2(8)");
+  TEST("eval: abs(-16), log(1000, 10), log(8, 2)");
 
   ParseResult r1 = parse("abs(-16)");
   EvalResult e1 = eval(r1.root, NULL);
@@ -337,14 +337,14 @@ static void test_eval_elementary_functions(void) {
   eval_result_free(&e1);
   parse_result_free(&r1);
 
-  ParseResult r2 = parse("log10(1000)");
+  ParseResult r2 = parse("log(1000, 10)");
   EvalResult e2 = eval(r2.root, NULL);
   ASSERT_TRUE(e2.ok);
   ASSERT_CNEAR(e2.value, c_real(3.0), 1e-9);
   eval_result_free(&e2);
   parse_result_free(&r2);
 
-  ParseResult r3 = parse("log2(8)");
+  ParseResult r3 = parse("log(8, 2)");
   EvalResult e3 = eval(r3.root, NULL);
   ASSERT_TRUE(e3.ok);
   ASSERT_CNEAR(e3.value, c_real(3.0), 1e-9);
@@ -738,7 +738,7 @@ static void test_simplify_exp_ln(void) {
 }
 
 static void test_simplify_elementary_functions(void) {
-  TEST("simplify: abs(-16), sqrt(49), log10(1000), log2(8)");
+  TEST("simplify: abs(-16), sqrt(49), log(1000, 10), log(8, 2)");
 
   ParseResult r1 = parse("abs(-16)");
   AstNode *s1 = sym_simplify(ast_clone(r1.root));
@@ -752,13 +752,13 @@ static void test_simplify_elementary_functions(void) {
   ast_free(s2);
   parse_result_free(&r2);
 
-  ParseResult r3 = parse("log10(1000)");
+  ParseResult r3 = parse("log(1000, 10)");
   AstNode *s3 = sym_simplify(ast_clone(r3.root));
   ASSERT_TRUE(is_num_node(s3, 3));
   ast_free(s3);
   parse_result_free(&r3);
 
-  ParseResult r4 = parse("log2(8)");
+  ParseResult r4 = parse("log(8, 2)");
   AstNode *s4 = sym_simplify(ast_clone(r4.root));
   ASSERT_TRUE(is_num_node(s4, 3));
   ast_free(s4);
@@ -920,9 +920,9 @@ static void test_diff_ln(void) {
   PASS();
 }
 
-static void test_diff_log10(void) {
-  TEST("diff: d/dx(log10(x)) = 1/(x*ln(10))");
-  ParseResult r = parse("log10(x)");
+static void test_diff_log_base10(void) {
+  TEST("diff: d/dx(log(x, 10)) = 1/(x*ln(10))");
+  ParseResult r = parse("log(x, 10)");
   AstNode *d = sym_diff(r.root, "x");
   ASSERT_TRUE(d != NULL);
   char *s = ast_to_string(d);
@@ -933,9 +933,9 @@ static void test_diff_log10(void) {
   PASS();
 }
 
-static void test_diff_log2(void) {
-  TEST("diff: d/dx(log2(x)) = 1/(x*ln(2))");
-  ParseResult r = parse("log2(x)");
+static void test_diff_log_base2(void) {
+  TEST("diff: d/dx(log(x, 2)) = 1/(x*ln(2))");
+  ParseResult r = parse("log(x, 2)");
   AstNode *d = sym_diff(r.root, "x");
   ASSERT_TRUE(d != NULL);
   char *s = ast_to_string(d);
@@ -1726,7 +1726,7 @@ static void test_latex_number(void) {
 }
 
 static void test_latex_elementary_functions(void) {
-  TEST("latex: abs, sqrt, log10, log2");
+  TEST("latex: abs, sqrt, log(x, 10), log(x, 2)");
 
   ParseResult r1 = parse("abs(x)");
   char *s1 = ast_to_latex(r1.root);
@@ -1740,13 +1740,13 @@ static void test_latex_elementary_functions(void) {
   free(s2);
   parse_result_free(&r2);
 
-  ParseResult r3 = parse("log10(x)");
+  ParseResult r3 = parse("log(x, 10)");
   char *s3 = ast_to_latex(r3.root);
   ASSERT_STR_EQ(s3, "\\log_{10}\\left(x\\right)");
   free(s3);
   parse_result_free(&r3);
 
-  ParseResult r4 = parse("log2(x)");
+  ParseResult r4 = parse("log(x, 2)");
   char *s4 = ast_to_latex(r4.root);
   ASSERT_STR_EQ(s4, "\\log_{2}\\left(x\\right)");
   free(s4);
@@ -2055,6 +2055,34 @@ static void test_solve_newton_exp(void) {
   PASS();
 }
 
+static void test_solve_log_base(void) {
+  TEST("solve: log(x, 2) - 4 = 0 -> x = 16");
+  ParseResult pr = parse("log(x, 2) - 4");
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0.0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_CNEAR(r.roots[0], c_real(16.0), 1e-10);
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solve_log_variable_base(void) {
+  TEST("solve: log(2, x) - 4 = 0 -> x = 2^(1/4)");
+  ParseResult pr = parse("log(2, x) - 4");
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0.0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_CNEAR(r.roots[0], c_real(pow(2.0, 0.25)), 1e-10);
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
 /* Main */
 
 int main(void) {
@@ -2139,8 +2167,8 @@ int main(void) {
   test_diff_cos();
   test_diff_exp();
   test_diff_ln();
-  test_diff_log10();
-  test_diff_log2();
+  test_diff_log_base10();
+  test_diff_log_base2();
   test_diff_abs();
   test_diff_chain_sin_x2();
   test_diff_x_to_x();
@@ -2231,6 +2259,8 @@ int main(void) {
   test_solve_quadratic_complex();
   test_solve_newton_sin();
   test_solve_newton_exp();
+  test_solve_log_base();
+  test_solve_log_variable_base();
 
   printf("\n=== Results: %d/%d passed ===\n", tests_passed, tests_run);
   return tests_passed == tests_run ? 0 : 1;

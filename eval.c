@@ -1,4 +1,5 @@
 #include "eval.h"
+#include "logarithm.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,36 @@ static EvalResult fail(const char *msg) {
 }
 
 static EvalResult eval_call(const char *name, Complex *args, size_t nargs) {
+  AstNode node;
+  node.type = AST_FUNC_CALL;
+  node.as.call.name = (char *)name;
+  node.as.call.args = NULL;
+  node.as.call.nargs = nargs;
+
+  LogKind kind = log_kind(&node);
+  if (kind != LOG_KIND_NONE) {
+    if (kind == LOG_KIND_LN) {
+      Complex a = args[0];
+      if (c_is_zero(a))
+        return fail("domain error: ln of zero");
+      return ok(c_log(a));
+    }
+
+    Complex base = (kind == LOG_KIND_BASE10)  ? c_real(10.0)
+                   : (kind == LOG_KIND_BASE2) ? c_real(2.0)
+                                              : args[1];
+    char *error = NULL;
+    int ok_flag = 0;
+    Complex result = log_eval_value_base(args[0], base, &ok_flag, &error);
+    if (!ok_flag) {
+      EvalResult r = fail(error ? error : "domain error: log");
+      free(error);
+      return r;
+    }
+    free(error);
+    return ok(result);
+  }
+
   if (nargs == 1) {
     Complex a = args[0];
     if (strcmp(name, "sin") == 0)
@@ -35,22 +66,6 @@ static EvalResult eval_call(const char *name, Complex *args, size_t nargs) {
       return ok(c_sqrt(a));
     if (strcmp(name, "abs") == 0)
       return ok_real(c_abs(a));
-    if (strcmp(name, "log10") == 0 || strcmp(name, "log") == 0) {
-      if (c_is_zero(a))
-        return fail("domain error: log of zero");
-      if (c_is_real(a) && a.re > 0)
-        return ok_real(log10(a.re));
-      Complex r = c_div(c_log(a), c_real(log(10.0)));
-      return ok(r);
-    }
-    if (strcmp(name, "log2") == 0) {
-      if (c_is_zero(a))
-        return fail("domain error: log of zero");
-      if (c_is_real(a) && a.re > 0)
-        return ok_real(log2(a.re));
-      Complex r = c_div(c_log(a), c_real(log(2.0)));
-      return ok(r);
-    }
     if (strcmp(name, "exp") == 0)
       return ok(c_exp(a));
     if (strcmp(name, "ln") == 0) {

@@ -1,5 +1,6 @@
 #include "symbolic.h"
 #include "canonical.h"
+#include "logarithm.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,26 +36,6 @@ static int fold_unary_numeric_call(const char *name, Complex arg,
   }
   if (strcmp(name, "sqrt") == 0) {
     *out = c_sqrt(arg);
-    return 1;
-  }
-  if (strcmp(name, "log10") == 0 || strcmp(name, "log") == 0) {
-    if (c_is_zero(arg))
-      return 0;
-    if (c_is_real(arg) && arg.re > 0) {
-      *out = c_real(log10(arg.re));
-    } else {
-      *out = c_div(c_log(arg), c_real(log(10.0)));
-    }
-    return 1;
-  }
-  if (strcmp(name, "log2") == 0) {
-    if (c_is_zero(arg))
-      return 0;
-    if (c_is_real(arg) && arg.re > 0) {
-      *out = c_real(log2(arg.re));
-    } else {
-      *out = c_div(c_log(arg), c_real(log(2.0)));
-    }
     return 1;
   }
   return 0;
@@ -164,6 +145,8 @@ AstNode *sym_simplify(AstNode *node) {
   case AST_FUNC_CALL:
     for (size_t i = 0; i < node->as.call.nargs; i++)
       node->as.call.args[i] = sym_simplify(node->as.call.args[i]);
+    if (log_kind(node) != LOG_KIND_NONE)
+      return log_simplify_call(node);
     if (node->as.call.nargs == 1 && is_num(node->as.call.args[0])) {
       Complex folded;
       if (fold_unary_numeric_call(node->as.call.name,
@@ -990,6 +973,9 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
   }
 
   case AST_FUNC_CALL: {
+    if (log_kind(expr) != LOG_KIND_NONE)
+      return log_diff_call(expr, var);
+
     const char *name = expr->as.call.name;
     if (expr->as.call.nargs != 1)
       return NULL;
@@ -1010,16 +996,6 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
                     ast_number(2)));
     } else if (strcmp(name, "ln") == 0) {
       outer_d = ast_binop(OP_DIV, ast_number(1), ast_clone(inner));
-    } else if (strcmp(name, "log") == 0 || strcmp(name, "log10") == 0) {
-      /* d/dx log10(u) = 1/(u * ln(10)) */
-      AstNode *ln10 = ast_func_call("ln", 2, (AstNode *[]){ast_number(10)}, 1);
-      outer_d = ast_binop(OP_DIV, ast_number(1),
-                          ast_binop(OP_MUL, ast_clone(inner), ln10));
-    } else if (strcmp(name, "log2") == 0) {
-      /* d/dx log2(u) = 1/(u * ln(2)) */
-      AstNode *ln2 = ast_func_call("ln", 2, (AstNode *[]){ast_number(2)}, 1);
-      outer_d = ast_binop(OP_DIV, ast_number(1),
-                          ast_binop(OP_MUL, ast_clone(inner), ln2));
     } else if (strcmp(name, "exp") == 0) {
       outer_d = ast_clone(expr);
     } else if (strcmp(name, "sqrt") == 0) {
