@@ -10,13 +10,13 @@ LDFLAGS :=
 LDLIBS  := -lm
 
 SRC     := lexer.c ast.c parser.c eval.c symbolic.c canonical.c \
-           symtab.c matrix.c main.c
+           symtab.c matrix.c latex.c main.c
 OBJ     := $(SRC:.c=.o)
 DEP     := $(SRC:.c=.d)
 BIN     := sia
 
 CORE    := lexer.c ast.c parser.c eval.c symbolic.c canonical.c \
-           symtab.c matrix.c
+           symtab.c matrix.c latex.c
 TEST_SRC := test_sia.c $(CORE)
 TEST_BIN := test_sia
 

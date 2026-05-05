@@ -1,6 +1,7 @@
 #include "ast.h"
 #include "canonical.h"
 #include "eval.h"
+#include "latex.h"
 #include "matrix.h"
 #include "parser.h"
 #include "symbolic.h"
@@ -12,6 +13,8 @@
 #include <unistd.h>
 
 static int is_tty;
+static int latex_mode;
+static int full_doc_mode;
 static SymTab global_symtab;
 
 static void print_bold(const char *s) {
@@ -33,6 +36,30 @@ static void format_number(char *buf, size_t size, double v) {
     snprintf(buf, size, "%lld", (long long)v);
   else
     snprintf(buf, size, "%g", v);
+}
+
+static void output_result(const AstNode *node, const char *plain,
+                          int batch_mode) {
+  if (latex_mode) {
+    char *tex = node ? ast_to_latex(node) : NULL;
+    const char *out = tex ? tex : plain;
+    if (full_doc_mode) {
+      latex_print_document(out);
+    } else if (batch_mode) {
+      printf("%s", out);
+    } else {
+      print_bold(out);
+      putchar('\n');
+    }
+    free(tex);
+  } else {
+    if (batch_mode)
+      printf("%s", plain);
+    else {
+      print_bold(plain);
+      putchar('\n');
+    }
+  }
 }
 
 static void output_str(const char *s, int batch_mode) {
@@ -544,7 +571,7 @@ static int process_input(const char *input, int batch_mode) {
       if (result) {
         result = sym_simplify(result);
         char *s = ast_to_string(result);
-        output_str(s, batch_mode);
+        output_result(result, s, batch_mode);
         free(s);
         ast_free(result);
       } else {
@@ -587,7 +614,7 @@ static int process_input(const char *input, int batch_mode) {
           def_res = sym_simplify(def_res);
 
           char *s = ast_to_string(def_res);
-          output_str(s, batch_mode);
+          output_result(def_res, s, batch_mode);
           free(s);
 
           ast_free(def_res);
@@ -595,13 +622,31 @@ static int process_input(const char *input, int batch_mode) {
           ast_free(lower);
         } else {
           char *s = ast_to_string(result);
-          size_t len = strlen(s);
-          char *out = malloc(len + 5);
-          memcpy(out, s, len);
-          memcpy(out + len, " + C", 5);
-          output_str(out, batch_mode);
+          if (latex_mode) {
+            char *tex = ast_to_latex(result);
+            size_t tlen = strlen(tex);
+            char *out = malloc(tlen + 5);
+            memcpy(out, tex, tlen);
+            memcpy(out + tlen, " + C", 5);
+            if (full_doc_mode) {
+              latex_print_document(out);
+            } else if (batch_mode) {
+              printf("%s", out);
+            } else {
+              print_bold(out);
+              putchar('\n');
+            }
+            free(tex);
+            free(out);
+          } else {
+            size_t len = strlen(s);
+            char *out = malloc(len + 5);
+            memcpy(out, s, len);
+            memcpy(out + len, " + C", 5);
+            output_str(out, batch_mode);
+            free(out);
+          }
           free(s);
-          free(out);
         }
         ast_free(result);
       } else {
@@ -622,7 +667,7 @@ static int process_input(const char *input, int batch_mode) {
       if (result) {
         result = sym_simplify(result);
         char *s = ast_to_string(result);
-        output_str(s, batch_mode);
+        output_result(result, s, batch_mode);
         free(s);
         ast_free(result);
       } else {
@@ -643,7 +688,7 @@ static int process_input(const char *input, int batch_mode) {
       simplified = sym_collect_terms(simplified);
       simplified = sym_simplify(simplified);
       char *s = ast_to_string(simplified);
-      output_str(s, batch_mode);
+      output_result(simplified, s, batch_mode);
       free(s);
       ast_free(simplified);
       parse_result_free(&pr);
@@ -660,7 +705,7 @@ static int process_input(const char *input, int batch_mode) {
       expanded = ast_canonicalize(expanded);
       expanded = sym_collect_terms(expanded);
       char *s = ast_to_string(expanded);
-      output_str(s, batch_mode);
+      output_result(expanded, s, batch_mode);
       free(s);
       ast_free(expanded);
       parse_result_free(&pr);
@@ -675,13 +720,19 @@ static int process_input(const char *input, int batch_mode) {
     Matrix *m = eval_matrix_expr(resolved);
     if (m) {
       char *s = matrix_to_string(m);
-      output_str(s, batch_mode);
+      if (latex_mode) {
+        char *tex = ast_to_latex(resolved);
+        output_result(NULL, tex, batch_mode);
+        free(tex);
+      } else {
+        output_str(s, batch_mode);
+      }
       free(s);
       matrix_free(m);
     } else {
       /* symbolic matrix: display as-is */
       char *s = ast_to_string(resolved);
-      output_str(s, batch_mode);
+      output_result(resolved, s, batch_mode);
       free(s);
     }
     ast_free(resolved);
@@ -694,12 +745,12 @@ static int process_input(const char *input, int batch_mode) {
   if (er.ok) {
     char buf[64];
     format_number(buf, sizeof buf, er.value);
-    output_str(buf, batch_mode);
+    output_result(resolved, buf, batch_mode);
   } else {
     /* fallback to symbolic simplification */
     AstNode *simplified = sym_simplify(resolved);
     char *s = ast_to_string(simplified);
-    output_str(s, batch_mode);
+    output_result(simplified, s, batch_mode);
     free(s);
     ast_free(simplified);
     resolved = NULL;
@@ -740,15 +791,29 @@ int main(int argc, char **argv) {
   is_tty = isatty(fileno(stdout));
   symtab_init(&global_symtab);
 
-  if (argc > 1) {
+  /* parse flags */
+  int first_expr_arg = 1;
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--latex") == 0) {
+      latex_mode = 1;
+      first_expr_arg = i + 1;
+    } else if (strcmp(argv[i], "--full") == 0) {
+      full_doc_mode = 1;
+      first_expr_arg = i + 1;
+    } else {
+      break;
+    }
+  }
+
+  if (first_expr_arg < argc) {
     size_t total = 0;
-    for (int i = 1; i < argc; i++)
+    for (int i = first_expr_arg; i < argc; i++)
       total += strlen(argv[i]) + 1;
 
     char *expr = malloc(total + 1);
     expr[0] = '\0';
-    for (int i = 1; i < argc; i++) {
-      if (i > 1)
+    for (int i = first_expr_arg; i < argc; i++) {
+      if (i > first_expr_arg)
         strcat(expr, " ");
       strcat(expr, argv[i]);
     }

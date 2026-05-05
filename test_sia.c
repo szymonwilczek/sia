@@ -4,6 +4,7 @@
 #include "ast.h"
 #include "canonical.h"
 #include "eval.h"
+#include "latex.h"
 #include "lexer.h"
 #include "matrix.h"
 #include "parser.h"
@@ -1510,6 +1511,189 @@ static void test_ast_matrix_clone(void) {
   PASS();
 }
 
+/* LaTeX */
+
+static void test_latex_number(void) {
+  TEST("latex: integer renders as plain number");
+  AstNode *n = ast_number(42);
+  char *s = ast_to_latex(n);
+  ASSERT_STR_EQ(s, "42");
+  free(s);
+  ast_free(n);
+  PASS();
+}
+
+static void test_latex_variable(void) {
+  TEST("latex: single char variable");
+  AstNode *n = ast_variable("x", 1);
+  char *s = ast_to_latex(n);
+  ASSERT_STR_EQ(s, "x");
+  free(s);
+  ast_free(n);
+  PASS();
+}
+
+static void test_latex_pi(void) {
+  TEST("latex: pi -> \\pi");
+  AstNode *n = ast_variable("pi", 2);
+  char *s = ast_to_latex(n);
+  ASSERT_STR_EQ(s, "\\pi");
+  free(s);
+  ast_free(n);
+  PASS();
+}
+
+static void test_latex_multichar_var(void) {
+  TEST("latex: multi-char var -> \\mathrm{var}");
+  AstNode *n = ast_variable("abc", 3);
+  char *s = ast_to_latex(n);
+  ASSERT_STR_EQ(s, "\\mathrm{abc}");
+  free(s);
+  ast_free(n);
+  PASS();
+}
+
+static void test_latex_add(void) {
+  TEST("latex: x + 1");
+  ParseResult r = parse("x + 1");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "x + 1");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_latex_sub(void) {
+  TEST("latex: x - 1");
+  ParseResult r = parse("x - 1");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "x - 1");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_latex_mul_implicit(void) {
+  TEST("latex: 4*x -> 4 x (implicit mul)");
+  ParseResult r = parse("4*x");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "4 x");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_latex_mul_cdot(void) {
+  TEST("latex: 3*4 -> 3 \\cdot 4");
+  ParseResult r = parse("3*4");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "3 \\cdot 4");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_latex_div_frac(void) {
+  TEST("latex: a/b -> \\frac{a}{b}");
+  ParseResult r = parse("a/b");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "\\frac{a}{b}");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_latex_pow(void) {
+  TEST("latex: x^2 -> x^{2}");
+  ParseResult r = parse("x^2");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "x^{2}");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_latex_nested_pow(void) {
+  TEST("latex: x^(n+1) -> x^{n + 1}");
+  ParseResult r = parse("x^(n+1)");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "x^{n + 1}");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_latex_sin(void) {
+  TEST("latex: sin(x) -> \\sin\\left(x\\right)");
+  ParseResult r = parse("sin(x)");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "\\sin\\left(x\\right)");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_latex_sqrt(void) {
+  TEST("latex: sqrt(x) -> \\sqrt{x}");
+  ParseResult r = parse("sqrt(x)");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "\\sqrt{x}");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_latex_abs(void) {
+  TEST("latex: abs(x) -> \\left|x\\right|");
+  ParseResult r = parse("abs(x)");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "\\left|x\\right|");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_latex_unary_neg(void) {
+  TEST("latex: -(x+1) -> -\\left(x + 1\\right)");
+  AstNode *inner = ast_binop(OP_ADD, ast_variable("x", 1), ast_number(1));
+  AstNode *neg = ast_unary_neg(inner);
+  char *s = ast_to_latex(neg);
+  ASSERT_STR_EQ(s, "-\\left(x + 1\\right)");
+  free(s);
+  ast_free(neg);
+  PASS();
+}
+
+static void test_latex_matrix(void) {
+  TEST("latex: 2x2 matrix -> pmatrix env");
+  ParseResult r = parse("[[1, 2], [3, 4]]");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "\\begin{pmatrix}\n1 & 2 \\\\\n3 & 4\n\\end{pmatrix}");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_latex_frac_no_parens(void) {
+  TEST("latex: (x+1)/(x-1) -> no parens inside frac");
+  ParseResult r = parse("(x+1)/(x-1)");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "\\frac{x + 1}{x - 1}");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_latex_complex_expr(void) {
+  TEST("latex: 4*x^2 + 3*x + 1");
+  ParseResult r = parse("4*x^2 + 3*x + 1");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "4 x^{2} + 3 x + 1");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
 /* Main */
 
 int main(void) {
@@ -1642,6 +1826,26 @@ int main(void) {
   test_diff_sincos_to_cos2x();
   test_trig_scattered_with_constant();
   test_trig_pythagorean_complex_arg();
+
+  printf("\n[LaTeX]\n");
+  test_latex_number();
+  test_latex_variable();
+  test_latex_pi();
+  test_latex_multichar_var();
+  test_latex_add();
+  test_latex_sub();
+  test_latex_mul_implicit();
+  test_latex_mul_cdot();
+  test_latex_div_frac();
+  test_latex_pow();
+  test_latex_nested_pow();
+  test_latex_sin();
+  test_latex_sqrt();
+  test_latex_abs();
+  test_latex_unary_neg();
+  test_latex_matrix();
+  test_latex_frac_no_parens();
+  test_latex_complex_expr();
 
   printf("\n=== Results: %d/%d passed ===\n", tests_passed, tests_run);
   return tests_passed == tests_run ? 0 : 1;
