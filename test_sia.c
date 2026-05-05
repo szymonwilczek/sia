@@ -8,6 +8,7 @@
 #include "lexer.h"
 #include "matrix.h"
 #include "parser.h"
+#include "solve.h"
 #include "symbolic.h"
 #include "symtab.h"
 #include <assert.h>
@@ -1704,6 +1705,92 @@ static void test_latex_complex_expr(void) {
   PASS();
 }
 
+/* Solver */
+
+static void test_solve_linear(void) {
+  TEST("solve: linear 2*x + 6 = 0 -> x = -3");
+  ParseResult pr = parse("2*x + 6");
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", 0, &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_NEAR(r.roots[0], -3.0, 1e-10);
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solve_quadratic(void) {
+  TEST("solve: quadratic x^2 - 4 = 0 -> x = -2, 2");
+  ParseResult pr = parse("x^2 - 4");
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", 0, &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 2);
+  ASSERT_NEAR(r.roots[0], -2.0, 1e-10);
+  ASSERT_NEAR(r.roots[1], 2.0, 1e-10);
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solve_quadratic_double_root(void) {
+  TEST("solve: double root x^2 - 2x + 1 = 0 -> x = 1");
+  ParseResult pr = parse("x^2 - 2*x + 1");
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", 0, &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_NEAR(r.roots[0], 1.0, 1e-10);
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solve_quadratic_no_real(void) {
+  TEST("solve: no real roots x^2 + 1 = 0");
+  ParseResult pr = parse("x^2 + 1");
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", 0, &st);
+  ASSERT_TRUE(!r.ok);
+  ASSERT_TRUE(r.error != NULL);
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solve_newton_sin(void) {
+  TEST("solve: Newton sin(x) = 0 near 3 -> pi");
+  ParseResult pr = parse("sin(x)");
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", 3.0, &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_NEAR(r.roots[0], 3.14159265358979, 1e-8);
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solve_newton_exp(void) {
+  TEST("solve: Newton exp(x) - 2 = 0 near 1 -> ln(2)");
+  ParseResult pr = parse("exp(x) - 2");
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", 1.0, &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_NEAR(r.roots[0], 0.693147180559945, 1e-8);
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
 /* Main */
 
 int main(void) {
@@ -1857,6 +1944,14 @@ int main(void) {
   test_latex_frac_no_parens();
   test_latex_inverse_pow();
   test_latex_complex_expr();
+
+  printf("\n[Solver]\n");
+  test_solve_linear();
+  test_solve_quadratic();
+  test_solve_quadratic_double_root();
+  test_solve_quadratic_no_real();
+  test_solve_newton_sin();
+  test_solve_newton_exp();
 
   printf("\n=== Results: %d/%d passed ===\n", tests_passed, tests_run);
   return tests_passed == tests_run ? 0 : 1;

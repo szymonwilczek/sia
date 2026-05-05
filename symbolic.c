@@ -26,7 +26,7 @@ static int is_call1_squared(const AstNode *n, const char *fname) {
          is_number(n->as.binop.right, 2) && is_call1(n->as.binop.left, fname);
 }
 
-static int contains_var(const AstNode *n, const char *var) {
+int sym_contains_var(const AstNode *n, const char *var) {
   if (!n)
     return 0;
   switch (n->type) {
@@ -35,19 +35,19 @@ static int contains_var(const AstNode *n, const char *var) {
   case AST_VARIABLE:
     return strcmp(n->as.variable, var) == 0;
   case AST_BINOP:
-    return contains_var(n->as.binop.left, var) ||
-           contains_var(n->as.binop.right, var);
+    return sym_contains_var(n->as.binop.left, var) ||
+           sym_contains_var(n->as.binop.right, var);
   case AST_UNARY_NEG:
-    return contains_var(n->as.unary.operand, var);
+    return sym_contains_var(n->as.unary.operand, var);
   case AST_FUNC_CALL:
     for (size_t i = 0; i < n->as.call.nargs; i++)
-      if (contains_var(n->as.call.args[i], var))
+      if (sym_contains_var(n->as.call.args[i], var))
         return 1;
     return 0;
   case AST_MATRIX: {
     size_t total = n->as.matrix.rows * n->as.matrix.cols;
     for (size_t i = 0; i < total; i++)
-      if (contains_var(n->as.matrix.elements[i], var))
+      if (sym_contains_var(n->as.matrix.elements[i], var))
         return 1;
     return 0;
   }
@@ -902,11 +902,11 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
           ast_binop(OP_POW, ast_clone(R), ast_number(2))));
 
     case OP_POW:
-      if (!contains_var(R, var) && !contains_var(L, var)) {
+      if (!sym_contains_var(R, var) && !sym_contains_var(L, var)) {
         return ast_number(0);
       }
       /* x^n where n constant: n*x^(n-1)*x' */
-      if (!contains_var(R, var)) {
+      if (!sym_contains_var(R, var)) {
         return sym_simplify(ast_binop(
             OP_MUL,
             ast_binop(
@@ -916,7 +916,7 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
             sym_diff(L, var)));
       }
       /* a^x where a constant: a^x * ln(a) * x' */
-      if (!contains_var(L, var)) {
+      if (!sym_contains_var(L, var)) {
         AstNode *lna_args[1] = {ast_clone(L)};
         return sym_simplify(
             ast_binop(OP_MUL,
@@ -1056,7 +1056,7 @@ static AstNode *integrate_trig(const AstNode *expr, const char *var) {
 
 static AstNode *integrate_monomial(const AstNode *expr, const char *var) {
   /* constant -> c*x */
-  if (!contains_var(expr, var)) {
+  if (!sym_contains_var(expr, var)) {
     return ast_binop(OP_MUL, ast_clone(expr), ast_variable(var, strlen(var)));
   }
 
@@ -1085,14 +1085,14 @@ static AstNode *integrate_monomial(const AstNode *expr, const char *var) {
 
   /* c*f(x) -> c * int(f(x)) */
   if (expr->type == AST_BINOP && expr->as.binop.op == OP_MUL) {
-    if (!contains_var(expr->as.binop.left, var)) {
+    if (!sym_contains_var(expr->as.binop.left, var)) {
       AstNode *inner = integrate_monomial(expr->as.binop.right, var);
       if (!inner)
         inner = integrate_trig(expr->as.binop.right, var);
       if (inner)
         return ast_binop(OP_MUL, ast_clone(expr->as.binop.left), inner);
     }
-    if (!contains_var(expr->as.binop.right, var)) {
+    if (!sym_contains_var(expr->as.binop.right, var)) {
       AstNode *inner = integrate_monomial(expr->as.binop.left, var);
       if (!inner)
         inner = integrate_trig(expr->as.binop.left, var);

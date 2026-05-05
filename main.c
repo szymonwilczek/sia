@@ -4,6 +4,7 @@
 #include "latex.h"
 #include "matrix.h"
 #include "parser.h"
+#include "solve.h"
 #include "symbolic.h"
 #include "symtab.h"
 #include <math.h>
@@ -244,6 +245,7 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
         }
       }
     }
+
     /* det(matrix) */
     if (strcmp(node->as.call.name, "det") == 0 && node->as.call.nargs == 1) {
       AstNode *arg = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
@@ -678,6 +680,45 @@ static int process_input(const char *input, int batch_mode) {
       }
       parse_result_free(&pr);
       return result ? 0 : 1;
+    }
+
+    if (strcmp(pr.root->as.call.name, "solve") == 0 &&
+        (pr.root->as.call.nargs == 2 || pr.root->as.call.nargs == 3) &&
+        pr.root->as.call.args[1]->type == AST_VARIABLE) {
+
+      AstNode *expr =
+          substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
+      const char *var = pr.root->as.call.args[1]->as.variable;
+      double x0 = 0.0;
+      if (pr.root->as.call.nargs == 3) {
+        EvalResult er = eval(pr.root->as.call.args[2], &global_symtab);
+        if (er.ok)
+          x0 = er.value;
+        eval_result_free(&er);
+      }
+
+      SolveResult sr = sym_solve(expr, var, x0, &global_symtab);
+      ast_free(expr);
+
+      if (sr.ok) {
+        for (size_t i = 0; i < sr.count; i++) {
+          char buf[64];
+          format_number(buf, sizeof buf, sr.roots[i]);
+          char out[128];
+          snprintf(out, sizeof out, "%s = %s", var, buf);
+          if (batch_mode)
+            printf("%s%s", out, i + 1 < sr.count ? "\n" : "");
+          else {
+            print_bold(out);
+            putchar('\n');
+          }
+        }
+      } else {
+        print_error(sr.error);
+      }
+      solve_result_free(&sr);
+      parse_result_free(&pr);
+      return sr.ok ? 0 : 1;
     }
 
     if (strcmp(pr.root->as.call.name, "simplify") == 0 &&

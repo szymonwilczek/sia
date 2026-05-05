@@ -1,4 +1,4 @@
-VERSION   := 0.4.0
+VERSION   := 0.4.1
 CODENAME  := "Elegant Euler"
 
 CC      ?= gcc
@@ -10,13 +10,13 @@ LDFLAGS :=
 LDLIBS  := -lm
 
 SRC     := lexer.c ast.c parser.c eval.c symbolic.c canonical.c \
-           symtab.c matrix.c latex.c fractions.c main.c
+           symtab.c matrix.c latex.c fractions.c solve.c main.c
 OBJ     := $(SRC:.c=.o)
 DEP     := $(SRC:.c=.d)
 BIN     := sia
 
 CORE    := lexer.c ast.c parser.c eval.c symbolic.c canonical.c \
-           symtab.c matrix.c latex.c fractions.c
+           symtab.c matrix.c latex.c fractions.c solve.c
 TEST_SRC := test_sia.c $(CORE)
 TEST_BIN := test_sia
 
