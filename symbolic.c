@@ -306,6 +306,24 @@ AstNode *sym_simplify(AstNode *node) {
       ast_free(node);
       return sym_simplify(ast_unary_neg(R));
     }
+    /* A * (-B) -> -(A * B) */
+    if (R->type == AST_UNARY_NEG) {
+      AstNode *a = L;
+      AstNode *b = R->as.unary.operand;
+      R->as.unary.operand = NULL;
+      node->as.binop.left = NULL;
+      ast_free(node);
+      return sym_simplify(ast_unary_neg(ast_binop(OP_MUL, a, b)));
+    }
+    /* (-A) * B -> -(A * B) */
+    if (L->type == AST_UNARY_NEG) {
+      AstNode *a = L->as.unary.operand;
+      AstNode *b = R;
+      L->as.unary.operand = NULL;
+      node->as.binop.right = NULL;
+      ast_free(node);
+      return sym_simplify(ast_unary_neg(ast_binop(OP_MUL, a, b)));
+    }
     /* c1 * (c2 * E) -> (c1*c2) * E */
     if (is_num(L) && R->type == AST_BINOP && R->as.binop.op == OP_MUL &&
         is_num(R->as.binop.left)) {
@@ -676,14 +694,30 @@ AstNode *sym_collect_terms(AstNode *expr) {
     }
   }
 
+  /* merge constants that trig reduction may have introduced */
+  double const_sum = 0;
+  int has_const = 0;
+  for (size_t i = 0; i < count; i++) {
+    if (terms[i] && terms[i]->type == AST_NUMBER) {
+      const_sum += terms[i]->as.number;
+      ast_free(terms[i]);
+      terms[i] = NULL;
+      has_const = 1;
+    }
+  }
+  if (has_const && const_sum != 0) {
+    for (size_t i = 0; i < count; i++) {
+      if (!terms[i]) {
+        terms[i] = ast_number(const_sum);
+        break;
+      }
+    }
+  }
+
   AstNode *res = NULL;
   for (size_t i = 0; i < count; i++) {
     if (!terms[i])
       continue;
-    if (terms[i]->type == AST_NUMBER && terms[i]->as.number == 0) {
-      ast_free(terms[i]);
-      continue;
-    }
     if (!res) {
       res = terms[i];
     } else {

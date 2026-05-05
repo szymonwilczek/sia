@@ -1439,6 +1439,48 @@ static void test_trig_scaled_cos2_sin2(void) {
   PASS();
 }
 
+static void test_mul_neg_simplify(void) {
+  TEST("simplify: A * (-B) -> -(A*B)");
+  ParseResult r = parse("sin(x)*(-sin(x))");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "(-sin(x)^2)");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_sincos_to_cos2x(void) {
+  TEST("expand: d/dx(sin(x)*cos(x)) -> cos(2*x)");
+  ParseResult r = parse("sin(x)*cos(x)");
+  AstNode *d = sym_diff(r.root, "x");
+  d = sym_simplify(d);
+  AstNode *e = sym_expand(d);
+  e = ast_canonicalize(e);
+  e = sym_collect_terms(e);
+  char *s = ast_to_string(e);
+  ASSERT_STR_EQ(s, "cos(2*x)");
+  free(s);
+  ast_free(e);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_trig_scattered_with_constant(void) {
+  TEST("trig: sin(x)^2 + y + cos(x)^2 + 5 -> 6 + y");
+  ParseResult r = parse("sin(x)^2 + y + cos(x)^2 + 5");
+  AstNode *e = sym_expand(r.root);
+  e = ast_canonicalize(e);
+  e = sym_collect_terms(e);
+  char *s = ast_to_string(e);
+  ASSERT_STR_EQ(s, "6 + y");
+  free(s);
+  ast_free(e);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_trig_pythagorean_complex_arg(void) {
   TEST("trig: sin(x^2+1)^2 + cos(x^2+1)^2 -> 1");
   ParseResult r = parse("sin(x^2+1)^2 + cos(x^2+1)^2");
@@ -1596,6 +1638,9 @@ int main(void) {
   test_trig_cos2_minus_sin2();
   test_trig_sin2_minus_cos2();
   test_trig_scaled_cos2_sin2();
+  test_mul_neg_simplify();
+  test_diff_sincos_to_cos2x();
+  test_trig_scattered_with_constant();
   test_trig_pythagorean_complex_arg();
 
   printf("\n=== Results: %d/%d passed ===\n", tests_passed, tests_run);
