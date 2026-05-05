@@ -714,7 +714,7 @@ static int process_input(const char *input, int batch_mode) {
 
 static void repl(void) {
   char line[4096];
-  fprintf(stderr, "sia v0.2.0 - type an expression, or 'quit' to exit\n");
+  fprintf(stderr, "sia v0.3.5 - type an expression, or 'quit' to exit\n");
 
   for (;;) {
     fprintf(stdout, "sia> ");
