@@ -531,6 +531,10 @@ AstNode *sym_collect_terms(AstNode *expr) {
         b_i->as.binop.left->type == AST_NUMBER) {
       c_i = b_i->as.binop.left->as.number;
       b_i = b_i->as.binop.right;
+      if (b_i->type == AST_NUMBER) {
+        c_i *= b_i->as.number;
+        b_i = NULL;
+      }
     } else if (b_i->type == AST_NUMBER) {
       c_i = b_i->as.number;
       b_i = NULL;
@@ -546,6 +550,10 @@ AstNode *sym_collect_terms(AstNode *expr) {
           b_j->as.binop.left->type == AST_NUMBER) {
         c_j = b_j->as.binop.left->as.number;
         b_j = b_j->as.binop.right;
+        if (b_j->type == AST_NUMBER) {
+          c_j *= b_j->as.number;
+          b_j = NULL;
+        }
       } else if (b_j->type == AST_NUMBER) {
         c_j = b_j->as.number;
         b_j = NULL;
