@@ -1684,6 +1684,16 @@ static void test_latex_frac_no_parens(void) {
   PASS();
 }
 
+static void test_latex_inverse_pow(void) {
+  TEST("latex: x^(-1) -> \\frac{1}{x}");
+  ParseResult r = parse("x^(-1)");
+  char *s = ast_to_latex(r.root);
+  ASSERT_STR_EQ(s, "\\frac{1}{x}");
+  free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_latex_complex_expr(void) {
   TEST("latex: 4*x^2 + 3*x + 1");
   ParseResult r = parse("4*x^2 + 3*x + 1");
@@ -1845,6 +1855,7 @@ int main(void) {
   test_latex_unary_neg();
   test_latex_matrix();
   test_latex_frac_no_parens();
+  test_latex_inverse_pow();
   test_latex_complex_expr();
 
   printf("\n=== Results: %d/%d passed ===\n", tests_passed, tests_run);

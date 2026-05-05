@@ -158,6 +158,13 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
     }
 
     if (op == OP_POW) {
+      if (R->type == AST_NUMBER && R->as.number == -1.0) {
+        sb_puts(sb, "\\frac{1}{");
+        latex_node(L, sb, NULL, 0);
+        sb_puts(sb, "}");
+        break;
+      }
+
       int base_parens = L->type == AST_BINOP || L->type == AST_UNARY_NEG;
       if (base_parens)
         sb_puts(sb, "\\left(");

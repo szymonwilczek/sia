@@ -8,11 +8,11 @@ static int node_sort_key(const AstNode *n) {
     return 0;
   case AST_VARIABLE:
     return 1;
-  case AST_FUNC_CALL:
-    return 2;
   case AST_UNARY_NEG:
-    return 3;
+    return 2;
   case AST_BINOP:
+    return 3;
+  case AST_FUNC_CALL:
     return 4;
   case AST_MATRIX:
     return 5;
