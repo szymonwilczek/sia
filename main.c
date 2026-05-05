@@ -233,6 +233,9 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
       AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
       expr = substitute_vars(expr, st);
       AstNode *simplified = sym_simplify(expr);
+      simplified = ast_canonicalize(simplified);
+      simplified = sym_collect_terms(simplified);
+      simplified = sym_simplify(simplified);
       ast_free(node);
       return resolve_symbolic(simplified, st);
     }
@@ -636,6 +639,9 @@ static int process_input(const char *input, int batch_mode) {
       AstNode *expr =
           substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
       AstNode *simplified = sym_simplify(expr);
+      simplified = ast_canonicalize(simplified);
+      simplified = sym_collect_terms(simplified);
+      simplified = sym_simplify(simplified);
       char *s = ast_to_string(simplified);
       output_str(s, batch_mode);
       free(s);
