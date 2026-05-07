@@ -338,6 +338,39 @@ static void test_eval_sqrt(void) {
   PASS();
 }
 
+static void test_eval_inverse_trig(void) {
+  TEST("eval: asin(0), acos(1), atan(0)");
+
+  ParseResult r1 = parse("asin(0)");
+  EvalResult e1 = eval(r1.root, NULL);
+  ASSERT_TRUE(e1.ok);
+  ASSERT_TRUE(e1.value.exact);
+  ASSERT_TRUE(fraction_is_zero(e1.value.re_q));
+  ASSERT_TRUE(fraction_is_zero(e1.value.im_q));
+  eval_result_free(&e1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("acos(1)");
+  EvalResult e2 = eval(r2.root, NULL);
+  ASSERT_TRUE(e2.ok);
+  ASSERT_TRUE(e2.value.exact);
+  ASSERT_TRUE(fraction_is_zero(e2.value.re_q));
+  ASSERT_TRUE(fraction_is_zero(e2.value.im_q));
+  eval_result_free(&e2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("atan(0)");
+  EvalResult e3 = eval(r3.root, NULL);
+  ASSERT_TRUE(e3.ok);
+  ASSERT_TRUE(e3.value.exact);
+  ASSERT_TRUE(fraction_is_zero(e3.value.re_q));
+  ASSERT_TRUE(fraction_is_zero(e3.value.im_q));
+  eval_result_free(&e3);
+  parse_result_free(&r3);
+
+  PASS();
+}
+
 static void test_eval_factorial(void) {
   TEST("eval: 5! and factorial(5) = 120");
 
@@ -882,6 +915,115 @@ static void test_simplify_complex_trig_identities(void) {
     parse_result_free(&r);
   }
 
+static void test_simplify_inverse_trig(void) {
+  TEST("simplify: inverse trig constants and identities");
+
+  ParseResult r1 = parse("asin(0)");
+  AstNode *s1 = sym_simplify(ast_clone(r1.root));
+  ASSERT_TRUE(is_num_node(s1, 0));
+  ast_free(s1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("acos(1)");
+  AstNode *s2 = sym_simplify(ast_clone(r2.root));
+  ASSERT_TRUE(is_num_node(s2, 0));
+  ast_free(s2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("atan(0)");
+  AstNode *s3 = sym_simplify(ast_clone(r3.root));
+  ASSERT_TRUE(is_num_node(s3, 0));
+  ast_free(s3);
+  parse_result_free(&r3);
+
+  ParseResult r4 = parse("asin(1)");
+  AstNode *s4 = sym_simplify(ast_clone(r4.root));
+  char *str4 = ast_to_string(s4);
+  ASSERT_STR_EQ(str4, "pi/2");
+  free(str4);
+  ast_free(s4);
+  parse_result_free(&r4);
+
+  ParseResult r5 = parse("acos(0)");
+  AstNode *s5 = sym_simplify(ast_clone(r5.root));
+  char *str5 = ast_to_string(s5);
+  ASSERT_STR_EQ(str5, "pi/2");
+  free(str5);
+  ast_free(s5);
+  parse_result_free(&r5);
+
+  ParseResult r6 = parse("atan(1)");
+  AstNode *s6 = sym_simplify(ast_clone(r6.root));
+  char *str6 = ast_to_string(s6);
+  ASSERT_STR_EQ(str6, "pi/4");
+  free(str6);
+  ast_free(s6);
+  parse_result_free(&r6);
+
+  ParseResult r7 = parse("sin(asin(x))");
+  AstNode *s7 = sym_simplify(ast_clone(r7.root));
+  char *str7 = ast_to_string(s7);
+  ASSERT_STR_EQ(str7, "x");
+  free(str7);
+  ast_free(s7);
+  parse_result_free(&r7);
+
+  ParseResult r8 = parse("cos(acos(x))");
+  AstNode *s8 = sym_simplify(ast_clone(r8.root));
+  char *str8 = ast_to_string(s8);
+  ASSERT_STR_EQ(str8, "x");
+  free(str8);
+  ast_free(s8);
+  parse_result_free(&r8);
+
+  ParseResult r9 = parse("tan(atan(x))");
+  AstNode *s9 = sym_simplify(ast_clone(r9.root));
+  char *str9 = ast_to_string(s9);
+  ASSERT_STR_EQ(str9, "x");
+  free(str9);
+  ast_free(s9);
+  parse_result_free(&r9);
+
+  ParseResult r10 = parse("asin(sin(x))");
+  AstNode *s10 = sym_simplify(ast_clone(r10.root));
+  char *str10 = ast_to_string(s10);
+  ASSERT_STR_EQ(str10, "x");
+  free(str10);
+  ast_free(s10);
+  parse_result_free(&r10);
+
+  ParseResult r11 = parse("acos(cos(x))");
+  AstNode *s11 = sym_simplify(ast_clone(r11.root));
+  char *str11 = ast_to_string(s11);
+  ASSERT_STR_EQ(str11, "x");
+  free(str11);
+  ast_free(s11);
+  parse_result_free(&r11);
+
+  ParseResult r12 = parse("atan(tan(x))");
+  AstNode *s12 = sym_simplify(ast_clone(r12.root));
+  char *str12 = ast_to_string(s12);
+  ASSERT_STR_EQ(str12, "x");
+  free(str12);
+  ast_free(s12);
+  parse_result_free(&r12);
+
+  ParseResult r13 = parse("asin(-x)");
+  AstNode *s13 = sym_simplify(ast_clone(r13.root));
+  char *str13 = ast_to_string(s13);
+  ASSERT_STR_EQ(str13, "(-asin(x))");
+  free(str13);
+  ast_free(s13);
+  parse_result_free(&r13);
+
+  ParseResult r14 = parse("atan(-x)");
+  AstNode *s14 = sym_simplify(ast_clone(r14.root));
+  char *str14 = ast_to_string(s14);
+  ASSERT_STR_EQ(str14, "(-atan(x))");
+  free(str14);
+  ast_free(s14);
+  parse_result_free(&r14);
+
   PASS();
 }
 
@@ -1298,6 +1440,19 @@ static void test_diff_asin(void) {
   ASSERT_TRUE(d != NULL);
   char *s = ast_to_string(d);
   ASSERT_STR_EQ(s, "1/sqrt(1 - x^2)");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_acos(void) {
+  TEST("diff: d/dx(acos(x))");
+  ParseResult r = parse("acos(x)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "(-1/sqrt(1 - x^2))");
   free(s);
   ast_free(d);
   parse_result_free(&r);
@@ -2209,6 +2364,30 @@ static void test_latex_sin(void) {
   PASS();
 }
 
+static void test_latex_inverse_trig(void) {
+  TEST("latex: asin, acos, atan");
+
+  ParseResult r1 = parse("asin(x)");
+  char *s1 = ast_to_latex(r1.root);
+  ASSERT_STR_EQ(s1, "\\asin\\left(x\\right)");
+  free(s1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("acos(x)");
+  char *s2 = ast_to_latex(r2.root);
+  ASSERT_STR_EQ(s2, "\\acos\\left(x\\right)");
+  free(s2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("atan(x)");
+  char *s3 = ast_to_latex(r3.root);
+  ASSERT_STR_EQ(s3, "\\atan\\left(x\\right)");
+  free(s3);
+  parse_result_free(&r3);
+
+  PASS();
+}
+
 static void test_latex_sqrt(void) {
   TEST("latex: sqrt(x) -> \\sqrt{x}");
   ParseResult r = parse("sqrt(x)");
@@ -2501,6 +2680,7 @@ int main(void) {
   test_eval_functions();
   test_eval_cos();
   test_eval_sqrt();
+  test_eval_inverse_trig();
   test_eval_elementary_functions();
   test_eval_number_theory();
   test_eval_number_theory_overflow();
@@ -2540,6 +2720,7 @@ int main(void) {
   test_simplify_exp_ln();
   test_simplify_elementary_functions();
   test_simplify_complex_trig_identities();
+  test_simplify_inverse_trig();
   test_simplify_number_theory();
   test_simplify_distributive();
   test_expand();
@@ -2569,6 +2750,7 @@ int main(void) {
   test_diff_log_base10();
   test_diff_log_base2();
   test_diff_abs();
+  test_diff_acos();
   test_diff_chain_sin_x2();
   test_diff_x_to_x();
   test_diff_asin();
@@ -2641,6 +2823,7 @@ int main(void) {
   test_latex_pow();
   test_latex_nested_pow();
   test_latex_sin();
+  test_latex_inverse_trig();
   test_latex_sqrt();
   test_latex_abs();
   test_latex_unary_neg();

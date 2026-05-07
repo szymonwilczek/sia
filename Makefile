@@ -11,7 +11,7 @@ LDLIBS  := -lm
 
 SRC     := lexer.c ast.c parser.c eval.c symbolic.c canonical.c \
 		   symtab.c matrix.c latex.c fractions.c logarithm.c factorial.c \
-		   number_theory.c \
+		   number_theory.c trigonometry/trigonometry.c \
 		   solve.c main.c
 OBJ     := $(SRC:.c=.o)
 DEP     := $(SRC:.c=.d)
@@ -19,7 +19,7 @@ BIN     := sia
 
 CORE    := lexer.c ast.c parser.c eval.c symbolic.c canonical.c \
 		   symtab.c matrix.c latex.c fractions.c logarithm.c factorial.c \
-		   number_theory.c \
+		   number_theory.c trigonometry/trigonometry.c \
 		   solve.c
 TEST_SRC := test_sia.c $(CORE)
 TEST_BIN := test_sia

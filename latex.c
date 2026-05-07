@@ -3,6 +3,7 @@
 #include "fractions.h"
 #include "logarithm.h"
 #include "number_theory.h"
+#include "trigonometry/trigonometry.h"
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -62,8 +63,7 @@ static int op_prec(BinOpKind op) {
 }
 
 static int is_latex_func(const char *name) {
-  static const char *funcs[] = {"sin",  "cos",  "tan",  "asin", "acos",
-                                "atan", "sinh", "cosh", "tanh", "exp",
+  static const char *funcs[] = {"sinh", "cosh", "tanh", "exp",
                                 "log",  "ln",   "det",  NULL};
   for (int i = 0; funcs[i]; i++)
     if (strcmp(name, funcs[i]) == 0)
@@ -309,6 +309,38 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
         latex_node(arg, sb, NULL, 0);
       }
       sb_puts(sb, "!");
+      break;
+    }
+
+    TrigKind trig = trig_kind(node);
+    if (trig != TRIG_KIND_NONE) {
+      const char *latex_name = NULL;
+      switch (trig) {
+      case TRIG_KIND_SIN:
+        latex_name = "sin";
+        break;
+      case TRIG_KIND_COS:
+        latex_name = "cos";
+        break;
+      case TRIG_KIND_TAN:
+        latex_name = "tan";
+        break;
+      case TRIG_KIND_ASIN:
+        latex_name = "asin";
+        break;
+      case TRIG_KIND_ACOS:
+        latex_name = "acos";
+        break;
+      case TRIG_KIND_ATAN:
+        latex_name = "atan";
+        break;
+      default:
+        break;
+      }
+      sb_printf(sb, "\\%s", latex_name ? latex_name : node->as.call.name);
+      sb_puts(sb, "\\left(");
+      latex_node(node->as.call.args[0], sb, NULL, 0);
+      sb_puts(sb, "\\right)");
       break;
     }
 

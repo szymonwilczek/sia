@@ -2,6 +2,7 @@
 #include "factorial.h"
 #include "logarithm.h"
 #include "number_theory.h"
+#include "trigonometry/trigonometry.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,6 +57,20 @@ static EvalResult eval_call(const char *name, Complex *args, size_t nargs) {
     Complex result = factorial_eval_value(args[0], &ok_flag, &error);
     if (!ok_flag) {
       EvalResult r = fail(error ? error : "domain error: factorial");
+      free(error);
+      return r;
+    }
+    free(error);
+    return ok(result);
+  }
+
+  TrigKind trig = trig_kind(&node);
+  if (trig != TRIG_KIND_NONE) {
+    char *error = NULL;
+    int ok_flag = 0;
+    Complex result = trig_eval_value(trig, args[0], &ok_flag, &error);
+    if (!ok_flag) {
+      EvalResult r = fail(error ? error : "domain error: trig");
       free(error);
       return r;
     }

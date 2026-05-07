@@ -186,16 +186,6 @@ static inline Complex c_sqrt(Complex z) {
   return c_make(re, im);
 }
 
-static inline Complex c_sin(Complex z) {
-  return c_make(sin(z.re) * cosh(z.im), cos(z.re) * sinh(z.im));
-}
-
-static inline Complex c_cos(Complex z) {
-  return c_make(cos(z.re) * cosh(z.im), -sin(z.re) * sinh(z.im));
-}
-
-static inline Complex c_tan(Complex z) { return c_div(c_sin(z), c_cos(z)); }
-
 static inline Complex c_sinh(Complex z) {
   return c_make(sinh(z.re) * cos(z.im), cosh(z.re) * sin(z.im));
 }
@@ -206,28 +196,11 @@ static inline Complex c_cosh(Complex z) {
 
 static inline Complex c_tanh(Complex z) { return c_div(c_sinh(z), c_cosh(z)); }
 
-static inline Complex c_asin(Complex z) {
-  /* asin(z) = -i * ln(iz + sqrt(1 - z^2)) */
-  Complex i_ = c_make(0, 1);
-  Complex mi = c_make(0, -1);
-  Complex one = c_real(1);
-  Complex arg = c_add(c_mul(i_, z), c_sqrt(c_sub(one, c_mul(z, z))));
-  return c_mul(mi, c_log(arg));
-}
-
-static inline Complex c_acos(Complex z) {
-  /* acos(z) = pi/2 - asin(z) */
-  Complex half_pi = c_real(M_PI / 2.0);
-  return c_sub(half_pi, c_asin(z));
-}
-
-static inline Complex c_atan(Complex z) {
-  /* atan(z) = (i/2) * ln((1-iz)/(1+iz)) */
-  Complex i_ = c_make(0, 1);
-  Complex half_i = c_make(0, 0.5);
-  Complex iz = c_mul(i_, z);
-  Complex one = c_real(1);
-  return c_mul(half_i, c_log(c_div(c_sub(one, iz), c_add(one, iz))));
-}
+Complex c_sin(Complex z);
+Complex c_cos(Complex z);
+Complex c_tan(Complex z);
+Complex c_asin(Complex z);
+Complex c_acos(Complex z);
+Complex c_atan(Complex z);
 
 #endif

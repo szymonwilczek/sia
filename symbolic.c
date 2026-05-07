@@ -3,6 +3,7 @@
 #include "factorial.h"
 #include "logarithm.h"
 #include "number_theory.h"
+#include "trigonometry/trigonometry.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -260,6 +261,8 @@ AstNode *sym_simplify(AstNode *node) {
       node->as.call.args[i] = sym_simplify(node->as.call.args[i]);
     if (factorial_is_call(node))
       return factorial_simplify_call(node);
+    if (trig_kind(node) != TRIG_KIND_NONE)
+      return trig_simplify_call(node);
     if (number_theory_kind(node) != NT_KIND_NONE)
       return number_theory_simplify_call(node);
     if (log_kind(node) != LOG_KIND_NONE)
@@ -1125,6 +1128,9 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
 
     if (log_kind(expr) != LOG_KIND_NONE)
       return log_diff_call(expr, var);
+
+    if (trig_kind(expr) != TRIG_KIND_NONE)
+      return trig_diff_call(expr, var);
 
     const char *name = expr->as.call.name;
     if (expr->as.call.nargs != 1)
