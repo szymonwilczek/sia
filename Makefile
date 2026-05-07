@@ -21,7 +21,8 @@ CORE    := lexer.c ast.c parser.c eval.c symbolic.c canonical.c \
 		   symtab.c matrix.c latex.c fractions.c logarithm.c factorial.c \
 		   number_theory.c trigonometry/trigonometry.c \
 		   solve.c
-TEST_SRC := test_sia.c $(CORE)
+TEST_MODULES := tests/test_support.c $(wildcard tests/*/*.c)
+TEST_SRC := test_sia.c $(TEST_MODULES) $(CORE)
 TEST_BIN := test_sia
 
 .PHONY: all clean test valgrind
