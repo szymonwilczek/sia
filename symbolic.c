@@ -273,6 +273,11 @@ typedef struct {
   size_t cap;
 } PowerFactorList;
 
+typedef struct {
+  Complex coeff;
+  PowerFactorList factors;
+} FactorizedTerm;
+
 static int node_list_push(NodeList *list, AstNode *node) {
   if (list->count == list->cap) {
     size_t new_cap = list->cap ? list->cap * 2 : 4;
@@ -326,6 +331,14 @@ static void power_factor_list_free(PowerFactorList *list) {
   list->items = NULL;
   list->count = 0;
   list->cap = 0;
+}
+
+static void factorized_terms_free(FactorizedTerm *terms, size_t count) {
+  if (!terms)
+    return;
+  for (size_t i = 0; i < count; i++)
+    power_factor_list_free(&terms[i].factors);
+  free(terms);
 }
 
 static int flatten_mul_factors(const AstNode *node, Complex *coeff,
@@ -490,6 +503,41 @@ static int append_factor_nodes(PowerFactorList *factors, NodeList *nodes) {
   }
 
   return 1;
+}
+
+static int find_power_factor(const PowerFactorList *factors,
+                             const AstNode *base, const AstNode *exp) {
+  for (size_t i = 0; i < factors->count; i++) {
+    if (!factors->items[i].base || !factors->items[i].exp)
+      continue;
+    if (ast_equal(factors->items[i].base, base) &&
+        ast_equal(factors->items[i].exp, exp))
+      return (int)i;
+  }
+
+  return -1;
+}
+
+static AstNode *clone_factor_node(const AstNode *base, const AstNode *exp) {
+  if (is_number(exp, 0))
+    return ast_number(1);
+  if (is_number(exp, 1))
+    return ast_clone(base);
+  return ast_binop(OP_POW, ast_clone(base), ast_clone(exp));
+}
+
+static AstNode *build_factorized_term(Complex coeff, PowerFactorList *factors) {
+  NodeList nodes = {0};
+  AstNode *result = NULL;
+
+  if (!append_factor_nodes(factors, &nodes)) {
+    node_list_free(&nodes);
+    return NULL;
+  }
+
+  result = build_mul_chain(coeff, &nodes);
+  node_list_free(&nodes);
+  return result;
 }
 
 static AstNode *normalize_mul_factors(const AstNode *node) {
@@ -1140,6 +1188,143 @@ static void flatten_add(AstNode *node, AstNode ***terms, size_t *count,
   }
 }
 
+static AstNode *try_cancel_common_add_factor(AstNode **terms, size_t count) {
+  size_t active_count = 0;
+  size_t k = 0;
+  FactorizedTerm *infos = NULL;
+  AstNode *common_base = NULL;
+  AstNode *common_exp = NULL;
+  AstNode *common_factor = NULL;
+  AstNode *inner = NULL;
+  AstNode *product = NULL;
+  AstNode *normalized = NULL;
+
+  for (size_t i = 0; i < count; i++)
+    if (terms[i])
+      active_count++;
+  if (active_count < 2)
+    return NULL;
+
+  infos = calloc(active_count, sizeof(*infos));
+  if (!infos)
+    return NULL;
+
+  for (size_t i = 0; i < count; i++) {
+    if (!terms[i])
+      continue;
+    infos[k].coeff = c_real(1.0);
+    if (!flatten_mul_factors(terms[i], &infos[k].coeff, &infos[k].factors)) {
+      factorized_terms_free(infos, active_count);
+      return NULL;
+    }
+    merge_like_factors(&infos[k].factors);
+    k++;
+  }
+
+  for (size_t candidate = 0; candidate < infos[0].factors.count; candidate++) {
+    AstNode *base = infos[0].factors.items[candidate].base;
+    AstNode *exp = infos[0].factors.items[candidate].exp;
+    int found = 1;
+
+    if (!base || !exp || is_number(exp, 0))
+      continue;
+
+    for (size_t i = 1; i < active_count; i++) {
+      if (find_power_factor(&infos[i].factors, base, exp) < 0) {
+        found = 0;
+        break;
+      }
+    }
+
+    if (found) {
+      common_base = ast_clone(base);
+      common_exp = ast_clone(exp);
+      break;
+    }
+  }
+
+  if (!common_base || !common_exp) {
+    factorized_terms_free(infos, active_count);
+    return NULL;
+  }
+
+  common_factor = clone_factor_node(common_base, common_exp);
+  if (!common_factor) {
+    ast_free(common_base);
+    ast_free(common_exp);
+    factorized_terms_free(infos, active_count);
+    return NULL;
+  }
+
+  for (size_t i = 0; i < active_count; i++) {
+    int idx = find_power_factor(&infos[i].factors, common_base, common_exp);
+    AstNode *residual = NULL;
+
+    if (idx < 0) {
+      ast_free(common_base);
+      ast_free(common_exp);
+      ast_free(common_factor);
+      ast_free(inner);
+      factorized_terms_free(infos, active_count);
+      return NULL;
+    }
+
+    ast_free(infos[i].factors.items[idx].base);
+    ast_free(infos[i].factors.items[idx].exp);
+    infos[i].factors.items[idx].base = NULL;
+    infos[i].factors.items[idx].exp = NULL;
+
+    residual = build_factorized_term(infos[i].coeff, &infos[i].factors);
+    if (!residual) {
+      ast_free(common_base);
+      ast_free(common_exp);
+      ast_free(common_factor);
+      ast_free(inner);
+      factorized_terms_free(infos, active_count);
+      return NULL;
+    }
+
+    if (!inner)
+      inner = residual;
+    else
+      inner = ast_binop(OP_ADD, inner, residual);
+  }
+
+  inner = ast_canonicalize(inner);
+  {
+    AstNode *collected = sym_collect_terms(inner);
+    ast_free(inner);
+    inner = collected;
+  }
+  {
+    AstNode *poly = ast_polynomial_canonicalize(inner);
+    if (poly) {
+      ast_free(inner);
+      inner = poly;
+    }
+  }
+
+  product = ast_binop(OP_MUL, inner, common_factor);
+  inner = NULL;
+  common_factor = NULL;
+  normalized = normalize_mul_factors(product);
+  ast_free(product);
+
+  ast_free(common_base);
+  ast_free(common_exp);
+  factorized_terms_free(infos, active_count);
+
+  if (!normalized)
+    return NULL;
+
+  if (normalized->type == AST_BINOP && normalized->as.binop.op == OP_MUL) {
+    ast_free(normalized);
+    return NULL;
+  }
+
+  return normalized;
+}
+
 AstNode *sym_collect_terms(AstNode *expr) {
   if (!expr)
     return NULL;
@@ -1300,6 +1485,16 @@ AstNode *sym_collect_terms(AstNode *expr) {
         terms[i] = ast_number_complex(const_sum);
         break;
       }
+    }
+  }
+
+  {
+    AstNode *factored = try_cancel_common_add_factor(terms, count);
+    if (factored) {
+      for (size_t i = 0; i < count; i++)
+        ast_free(terms[i]);
+      free(terms);
+      return ast_canonicalize(factored);
     }
   }
 

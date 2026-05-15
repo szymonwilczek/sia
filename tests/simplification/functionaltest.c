@@ -264,6 +264,16 @@ static void test_full_simplify_conjugate_radical_squares(void) {
   PASS();
 }
 
+static void test_full_simplify_common_inverse_factor(void) {
+  TEST("simplify: common inverse factor cancels");
+  ParseResult r = parse("-2*(-2 + x^2)^-1 + x^2*(-2 + x^2)^-1");
+  AstNode *s = sym_full_simplify(ast_clone(r.root));
+  ASSERT_TRUE(is_num_node(s, 1));
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_expand(void) {
   TEST("expand: (x+1)^2 -> 1 + 2*x + x^2 (or similar collected form)");
   ParseResult r = parse("(x+1)^2");
@@ -302,5 +312,6 @@ void tests_simplification_functional(void) {
   test_full_simplify_distribution();
   test_full_simplify_abs_power_identity();
   test_full_simplify_conjugate_radical_squares();
+  test_full_simplify_common_inverse_factor();
   test_expand();
 }
