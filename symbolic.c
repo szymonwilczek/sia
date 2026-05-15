@@ -1096,6 +1096,17 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
           ast_binop(OP_POW,
                     ast_func_call("cos", 3, (AstNode *[]){ast_clone(inner)}, 1),
                     ast_number(2)));
+    } else if (strcmp(name, "sinh") == 0) {
+      outer_d = ast_func_call("cosh", 4, (AstNode *[]){ast_clone(inner)}, 1);
+    } else if (strcmp(name, "cosh") == 0) {
+      outer_d = ast_func_call("sinh", 4, (AstNode *[]){ast_clone(inner)}, 1);
+    } else if (strcmp(name, "tanh") == 0) {
+      outer_d =
+          ast_binop(OP_DIV, ast_number(1),
+                    ast_binop(OP_POW,
+                              ast_func_call("cosh", 4,
+                                            (AstNode *[]){ast_clone(inner)}, 1),
+                              ast_number(2)));
     } else if (strcmp(name, "ln") == 0) {
       outer_d = ast_binop(OP_DIV, ast_number(1), ast_clone(inner));
     } else if (strcmp(name, "exp") == 0) {

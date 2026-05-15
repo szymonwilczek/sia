@@ -1054,6 +1054,58 @@ static void test_diff_cos(void) {
   PASS();
 }
 
+static void test_diff_cosh(void) {
+  TEST("diff: d/dx(cosh(x)) = sinh(x)");
+  ParseResult r = parse("cosh(x)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "sinh(x)");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_sinh(void) {
+  TEST("diff: d/dx(sinh(x)) = cosh(x)");
+  ParseResult r = parse("sinh(x)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "cosh(x)");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_tanh(void) {
+  TEST("diff: d/dx(tanh(x)) = 1/cosh(x)^2");
+  ParseResult r = parse("tanh(x)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "1/cosh(x)^2");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_nested_hyperbolic(void) {
+  TEST("diff: d/dx(sinh(cosh(x^2))) uses chain rule");
+  ParseResult r = parse("sinh(cosh(x^2))");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "cosh(cosh(x^2))*sinh(x^2)*2*x");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_diff_exp(void) {
   TEST("diff: d/dx(exp(x)) = exp(x)");
   ParseResult r = parse("exp(x)");
@@ -2243,6 +2295,34 @@ static void test_solve_newton_exp(void) {
   PASS();
 }
 
+static void test_solve_newton_after_simplify(void) {
+  TEST("solve: simplify cosh(i*x) - 1 before Newton -> 0");
+  ParseResult pr = parse("cosh(i*x) - 1");
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0.5), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_CNEAR(r.roots[0], c_real(0.0), 1e-5);
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solve_newton_tanh(void) {
+  TEST("solve: Newton tanh(x) = 0 near 0.5 -> 0");
+  ParseResult pr = parse("tanh(x)");
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0.5), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_CNEAR(r.roots[0], c_real(0.0), 1e-5);
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
 static void test_solve_log_base(void) {
   TEST("solve: log(x, 2) - 4 = 0 -> x = 16");
   ParseResult pr = parse("log(x, 2) - 4");
@@ -2361,6 +2441,10 @@ int main(void) {
   test_diff_polynomial();
   test_diff_sin();
   test_diff_cos();
+  test_diff_cosh();
+  test_diff_sinh();
+  test_diff_tanh();
+  test_diff_nested_hyperbolic();
   test_diff_exp();
   test_diff_ln();
   test_diff_log_base10();
@@ -2457,6 +2541,8 @@ int main(void) {
   test_solve_quadratic_complex();
   test_solve_newton_sin();
   test_solve_newton_exp();
+  test_solve_newton_after_simplify();
+  test_solve_newton_tanh();
   test_solve_log_base();
   test_solve_log_variable_base();
 

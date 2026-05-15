@@ -253,12 +253,19 @@ static SolveResult solve_newton(const AstNode *f, const AstNode *df,
 
 SolveResult sym_solve(const AstNode *expr, const char *var, Complex x0,
                       const SymTab *st) {
+  SolveResult result;
+  AstNode *simplified = NULL;
+
   if (!expr || !var)
     return fail("null expression or variable");
 
-  if (expr->type == AST_BINOP && expr->as.binop.op == OP_SUB) {
-    const AstNode *lhs = expr->as.binop.left;
-    const AstNode *rhs = expr->as.binop.right;
+  simplified = sym_simplify(ast_clone(expr));
+  if (!simplified)
+    return fail("failed to simplify expression before solving");
+
+  if (simplified->type == AST_BINOP && simplified->as.binop.op == OP_SUB) {
+    const AstNode *lhs = simplified->as.binop.left;
+    const AstNode *rhs = simplified->as.binop.right;
 
     if (log_kind(lhs) != LOG_KIND_NONE && !sym_contains_var(rhs, var)) {
       AstNode *root_expr = log_solve_call(lhs, rhs, var);
@@ -266,10 +273,13 @@ SolveResult sym_solve(const AstNode *expr, const char *var, Complex x0,
         root_expr = sym_simplify(root_expr);
         EvalResult er = eval(root_expr, st);
         ast_free(root_expr);
-        if (!er.ok)
+        if (!er.ok) {
+          ast_free(simplified);
           return fail(er.error ? er.error : "evaluation error during solve");
+        }
         SolveResult r = ok_roots(&er.value, 1);
         eval_result_free(&er);
+        ast_free(simplified);
         return r;
       }
     }
@@ -280,52 +290,69 @@ SolveResult sym_solve(const AstNode *expr, const char *var, Complex x0,
         root_expr = sym_simplify(root_expr);
         EvalResult er = eval(root_expr, st);
         ast_free(root_expr);
-        if (!er.ok)
+        if (!er.ok) {
+          ast_free(simplified);
           return fail(er.error ? er.error : "evaluation error during solve");
+        }
         SolveResult r = ok_roots(&er.value, 1);
         eval_result_free(&er);
+        ast_free(simplified);
         return r;
       }
     }
   }
 
-  if (log_kind(expr) != LOG_KIND_NONE && !sym_contains_var(expr, var)) {
+  if (log_kind(simplified) != LOG_KIND_NONE &&
+      !sym_contains_var(simplified, var)) {
     AstNode *zero = ast_number(0);
-    AstNode *root_expr = log_solve_call(expr, zero, var);
+    AstNode *root_expr = log_solve_call(simplified, zero, var);
     ast_free(zero);
     if (root_expr) {
       root_expr = sym_simplify(root_expr);
       EvalResult er = eval(root_expr, st);
       ast_free(root_expr);
-      if (!er.ok)
+      if (!er.ok) {
+        ast_free(simplified);
         return fail(er.error ? er.error : "evaluation error during solve");
+      }
       SolveResult r = ok_roots(&er.value, 1);
       eval_result_free(&er);
+      ast_free(simplified);
       return r;
     }
   }
 
   /* try polynomial extraction up to degree 2 */
   Complex coeffs[3];
-  int deg = extract_poly_coeffs(expr, var, coeffs, 2);
+  int deg = extract_poly_coeffs(simplified, var, coeffs, 2);
 
   if (deg == 0) {
+    ast_free(simplified);
     if (c_is_zero(coeffs[0]))
       return fail("expression is identically zero");
     return fail("no solution (constant non-zero expression)");
   }
-  if (deg == 1)
-    return solve_linear(coeffs[1], coeffs[0]);
-  if (deg == 2)
-    return solve_quadratic(coeffs[2], coeffs[1], coeffs[0]);
+  if (deg == 1) {
+    result = solve_linear(coeffs[1], coeffs[0]);
+    ast_free(simplified);
+    return result;
+  }
+  if (deg == 2) {
+    result = solve_quadratic(coeffs[2], coeffs[1], coeffs[0]);
+    ast_free(simplified);
+    return result;
+  }
 
   /* fallback: Newton-Raphson */
-  AstNode *df = sym_diff(expr, var);
-  if (!df)
+  AstNode *df = sym_diff(simplified, var);
+  if (!df) {
+    ast_free(simplified);
     return fail("cannot differentiate expression for Newton method");
+  }
   df = sym_simplify(df);
 
-  SolveResult r = solve_newton(expr, df, var, x0, st);
+  result = solve_newton(simplified, df, var, x0, st);
   ast_free(df);
-  return r;
+  ast_free(simplified);
+  return result;
 }
