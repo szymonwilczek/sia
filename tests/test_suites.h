@@ -11,6 +11,7 @@ void tests_number_theory_functional(void);
 void tests_number_theory_mathtest(void);
 void tests_simplification_functional(void);
 void tests_calculus_functional(void);
+void tests_calculus_mathtest(void);
 void tests_trigonometry_functional(void);
 void tests_trigonometry_mathtest(void);
 void tests_canonical_mathtest(void);
@@ -19,5 +20,6 @@ void tests_matrix_functional(void);
 void tests_matrix_mathtest(void);
 void tests_latex_functional(void);
 void tests_solver_functional(void);
+void tests_solver_mathtest(void);
 
 #endif

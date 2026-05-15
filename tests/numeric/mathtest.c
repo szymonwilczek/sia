@@ -90,6 +90,40 @@ static void test_simplify_exact_complex_product(void) {
   PASS();
 }
 
+static void test_complex_analytic_identities(void) {
+  TEST("complex: exp/log/sqrt analytic identities");
+
+  ParseResult r1 = parse("exp(i*pi) + 1");
+  EvalResult e1 = eval(r1.root, NULL);
+  ASSERT_TRUE(e1.ok);
+  ASSERT_CNEAR(e1.value, c_real(0.0), 1e-9);
+  eval_result_free(&e1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("ln(exp(2))");
+  EvalResult e2 = eval(r2.root, NULL);
+  ASSERT_TRUE(e2.ok);
+  ASSERT_CNEAR(e2.value, c_real(2.0), 1e-9);
+  eval_result_free(&e2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("exp(ln(2))");
+  EvalResult e3 = eval(r3.root, NULL);
+  ASSERT_TRUE(e3.ok);
+  ASSERT_CNEAR(e3.value, c_real(2.0), 1e-9);
+  eval_result_free(&e3);
+  parse_result_free(&r3);
+
+  ParseResult r4 = parse("sqrt(-1)^2");
+  EvalResult e4 = eval(r4.root, NULL);
+  ASSERT_TRUE(e4.ok);
+  ASSERT_CNEAR(e4.value, c_real(-1.0), 1e-9);
+  eval_result_free(&e4);
+  parse_result_free(&r4);
+
+  PASS();
+}
+
 
 void tests_numeric_mathtest(void) {
   test_eval_exact_rational();
@@ -98,4 +132,5 @@ void tests_numeric_mathtest(void) {
   test_simplify_rational_add();
   test_simplify_rational_pow();
   test_simplify_exact_complex_product();
+  test_complex_analytic_identities();
 }

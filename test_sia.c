@@ -16,6 +16,7 @@ int main(void) {
   test_suite_run("number_theory:mathtest", tests_number_theory_mathtest);
   test_suite_run("simplification:functionaltest", tests_simplification_functional);
   test_suite_run("calculus:functionaltest", tests_calculus_functional);
+  test_suite_run("calculus:mathtest", tests_calculus_mathtest);
   test_suite_run("trigonometry:functionaltest", tests_trigonometry_functional);
   test_suite_run("trigonometry:mathtest", tests_trigonometry_mathtest);
   test_suite_run("canonical:mathtest", tests_canonical_mathtest);
@@ -24,6 +25,7 @@ int main(void) {
   test_suite_run("matrix:mathtest", tests_matrix_mathtest);
   test_suite_run("latex:functionaltest", tests_latex_functional);
   test_suite_run("solver:functionaltest", tests_solver_functional);
+  test_suite_run("solver:mathtest", tests_solver_mathtest);
 
   printf("\n=== Results: %d/%d passed ===\n", tests_passed, tests_run);
   return tests_passed == tests_run ? 0 : 1;

@@ -207,7 +207,187 @@ static void test_diff_atan(void) {
   PASS();
 }
 
-/* Integration */
+static void test_simplify_hyperbolic(void) {
+  TEST("simplify: hyperbolic constants and parity");
+
+  ParseResult r1 = parse("sinh(0)");
+  AstNode *s1 = sym_simplify(ast_clone(r1.root));
+  ASSERT_TRUE(is_num_node(s1, 0));
+  ast_free(s1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("cosh(0)");
+  AstNode *s2 = sym_simplify(ast_clone(r2.root));
+  ASSERT_TRUE(is_num_node(s2, 1));
+  ast_free(s2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("tanh(0)");
+  AstNode *s3 = sym_simplify(ast_clone(r3.root));
+  ASSERT_TRUE(is_num_node(s3, 0));
+  ast_free(s3);
+  parse_result_free(&r3);
+
+  ParseResult r4 = parse("sinh(-x)");
+  AstNode *s4 = sym_simplify(ast_clone(r4.root));
+  char *str4 = ast_to_string(s4);
+  ASSERT_STR_EQ(str4, "(-sinh(x))");
+  free(str4);
+  ast_free(s4);
+  parse_result_free(&r4);
+
+  ParseResult r5 = parse("cosh(-x)");
+  AstNode *s5 = sym_simplify(ast_clone(r5.root));
+  char *str5 = ast_to_string(s5);
+  ASSERT_STR_EQ(str5, "cosh(x)");
+  free(str5);
+  ast_free(s5);
+  parse_result_free(&r5);
+
+  ParseResult r6 = parse("tanh(-x)");
+  AstNode *s6 = sym_simplify(ast_clone(r6.root));
+  char *str6 = ast_to_string(s6);
+  ASSERT_STR_EQ(str6, "(-tanh(x))");
+  free(str6);
+  ast_free(s6);
+  parse_result_free(&r6);
+
+  PASS();
+}
+
+static void test_simplify_hyperbolic_identities(void) {
+  TEST("simplify: hyperbolic identities");
+
+  ParseResult r1 = parse("sinh(x)/cosh(x)");
+  AstNode *s1 = sym_simplify(ast_clone(r1.root));
+  char *str1 = ast_to_string(s1);
+  ASSERT_STR_EQ(str1, "tanh(x)");
+  free(str1);
+  ast_free(s1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("cosh(x)^2 - sinh(x)^2");
+  AstNode *s2 = sym_simplify(ast_clone(r2.root));
+  ASSERT_TRUE(is_num_node(s2, 1));
+  ast_free(s2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("sinh(x)^2 - cosh(x)^2");
+  AstNode *s3 = sym_simplify(ast_clone(r3.root));
+  ASSERT_TRUE(is_num_node(s3, -1));
+  ast_free(s3);
+  parse_result_free(&r3);
+
+  PASS();
+}
+
+static void test_diff_hyperbolic(void) {
+  TEST("diff: d/dx(sinh/cosh/tanh)");
+
+  ParseResult r1 = parse("sinh(x)");
+  AstNode *d1 = sym_diff(r1.root, "x");
+  ASSERT_TRUE(d1 != NULL);
+  char *s1 = ast_to_string(d1);
+  ASSERT_STR_EQ(s1, "cosh(x)");
+  free(s1);
+  ast_free(d1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("cosh(x)");
+  AstNode *d2 = sym_diff(r2.root, "x");
+  ASSERT_TRUE(d2 != NULL);
+  char *s2 = ast_to_string(d2);
+  ASSERT_STR_EQ(s2, "sinh(x)");
+  free(s2);
+  ast_free(d2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("tanh(x)");
+  AstNode *d3 = sym_diff(r3.root, "x");
+  ASSERT_TRUE(d3 != NULL);
+  char *s3 = ast_to_string(d3);
+  ASSERT_STR_EQ(s3, "1/cosh(x)^2");
+  free(s3);
+  ast_free(d3);
+  parse_result_free(&r3);
+
+  PASS();
+}
+
+static void test_trig_numeric_roundtrip_identities(void) {
+  TEST("eval: trig inverse and hyperbolic numeric identities");
+
+  ParseResult r1 = parse("sin(asin(0.25))");
+  EvalResult e1 = eval(r1.root, NULL);
+  ASSERT_TRUE(e1.ok);
+  ASSERT_CNEAR(e1.value, c_real(0.25), 1e-9);
+  eval_result_free(&e1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("cos(acos(0.25))");
+  EvalResult e2 = eval(r2.root, NULL);
+  ASSERT_TRUE(e2.ok);
+  ASSERT_CNEAR(e2.value, c_real(0.25), 1e-9);
+  eval_result_free(&e2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("tan(atan(0.25))");
+  EvalResult e3 = eval(r3.root, NULL);
+  ASSERT_TRUE(e3.ok);
+  ASSERT_CNEAR(e3.value, c_real(0.25), 1e-9);
+  eval_result_free(&e3);
+  parse_result_free(&r3);
+
+  ParseResult r4 = parse("sinh(1)/cosh(1)");
+  EvalResult e4 = eval(r4.root, NULL);
+  ASSERT_TRUE(e4.ok);
+  ASSERT_CNEAR(e4.value, c_real(tanh(1.0)), 1e-9);
+  eval_result_free(&e4);
+  parse_result_free(&r4);
+
+  ParseResult r5 = parse("cosh(1)^2 - sinh(1)^2");
+  EvalResult e5 = eval(r5.root, NULL);
+  ASSERT_TRUE(e5.ok);
+  ASSERT_CNEAR(e5.value, c_real(1.0), 1e-9);
+  eval_result_free(&e5);
+  parse_result_free(&r5);
+
+  PASS();
+}
+
+static void test_trig_complex_bridge_identities(void) {
+  TEST("eval: circular and hyperbolic complex bridge identities");
+
+  ParseResult r1 = parse("sin(i)");
+  EvalResult e1 = eval(r1.root, NULL);
+  ASSERT_TRUE(e1.ok);
+  ASSERT_CNEAR(e1.value, c_make(0.0, sinh(1.0)), 1e-9);
+  eval_result_free(&e1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("cos(i)");
+  EvalResult e2 = eval(r2.root, NULL);
+  ASSERT_TRUE(e2.ok);
+  ASSERT_CNEAR(e2.value, c_real(cosh(1.0)), 1e-9);
+  eval_result_free(&e2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("sinh(i)");
+  EvalResult e3 = eval(r3.root, NULL);
+  ASSERT_TRUE(e3.ok);
+  ASSERT_CNEAR(e3.value, c_make(0.0, sin(1.0)), 1e-9);
+  eval_result_free(&e3);
+  parse_result_free(&r3);
+
+  ParseResult r4 = parse("cosh(i)");
+  EvalResult e4 = eval(r4.root, NULL);
+  ASSERT_TRUE(e4.ok);
+  ASSERT_CNEAR(e4.value, c_real(cos(1.0)), 1e-9);
+  eval_result_free(&e4);
+  parse_result_free(&r4);
+
+  PASS();
+}
 
 
 static void test_trig_pythagorean_scattered(void) {
@@ -335,6 +515,11 @@ void tests_trigonometry_mathtest(void) {
   test_diff_asin();
   test_diff_acos();
   test_diff_atan();
+  test_simplify_hyperbolic();
+  test_simplify_hyperbolic_identities();
+  test_diff_hyperbolic();
+  test_trig_numeric_roundtrip_identities();
+  test_trig_complex_bridge_identities();
   test_trig_pythagorean_scattered();
   test_trig_cos2_minus_sin2();
   test_trig_sin2_minus_cos2();

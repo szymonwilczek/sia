@@ -97,6 +97,55 @@ static void test_sym_det_nonsquare(void) {
   PASS();
 }
 
+static void test_matrix_det_multiplicative(void) {
+  TEST("matrix: det(A*B) = det(A)*det(B)");
+  Matrix *a = matrix_create(2, 2);
+  matrix_set(a, 0, 0, c_real(1));
+  matrix_set(a, 0, 1, c_real(2));
+  matrix_set(a, 1, 0, c_real(3));
+  matrix_set(a, 1, 1, c_real(5));
+
+  Matrix *b = matrix_create(2, 2);
+  matrix_set(b, 0, 0, c_real(-2));
+  matrix_set(b, 0, 1, c_real(4));
+  matrix_set(b, 1, 0, c_real(1));
+  matrix_set(b, 1, 1, c_real(3));
+
+  Matrix *ab = matrix_mul(a, b);
+  Complex det_ab = matrix_det(ab);
+  Complex det_product = c_mul(matrix_det(a), matrix_det(b));
+  ASSERT_CNEAR(det_ab, det_product, 1e-9);
+
+  matrix_free(ab);
+  matrix_free(b);
+  matrix_free(a);
+  PASS();
+}
+
+static void test_matrix_inverse_identity_product(void) {
+  TEST("matrix: A * inverse(A) = I");
+  Matrix *a = matrix_create(2, 2);
+  matrix_set(a, 0, 0, c_real(4));
+  matrix_set(a, 0, 1, c_real(7));
+  matrix_set(a, 1, 0, c_real(2));
+  matrix_set(a, 1, 1, c_real(6));
+
+  Matrix *inv = matrix_inverse(a);
+  ASSERT_TRUE(inv != NULL);
+  Matrix *product = matrix_mul(a, inv);
+  ASSERT_TRUE(product != NULL);
+
+  ASSERT_CNEAR(matrix_get(product, 0, 0), c_real(1), 1e-9);
+  ASSERT_CNEAR(matrix_get(product, 0, 1), c_real(0), 1e-9);
+  ASSERT_CNEAR(matrix_get(product, 1, 0), c_real(0), 1e-9);
+  ASSERT_CNEAR(matrix_get(product, 1, 1), c_real(1), 1e-9);
+
+  matrix_free(product);
+  matrix_free(inv);
+  matrix_free(a);
+  PASS();
+}
+
 
 void tests_matrix_mathtest(void) {
   test_matrix_det();
@@ -106,4 +155,6 @@ void tests_matrix_mathtest(void) {
   test_sym_det_2x2_numeric();
   test_sym_det_3x3();
   test_sym_det_nonsquare();
+  test_matrix_det_multiplicative();
+  test_matrix_inverse_identity_product();
 }

@@ -63,7 +63,7 @@ static void test_eval_sqrt(void) {
 
 
 static void test_eval_inverse_trig(void) {
-  TEST("eval: asin(0), acos(1), atan(0)");
+  TEST("eval: inverse trig principal values");
 
   ParseResult r1 = parse("asin(0)");
   EvalResult e1 = eval(r1.root, NULL);
@@ -91,6 +91,30 @@ static void test_eval_inverse_trig(void) {
   ASSERT_TRUE(fraction_is_zero(e3.value.im_q));
   eval_result_free(&e3);
   parse_result_free(&r3);
+
+  ParseResult r4 = parse("asin(1)");
+  EvalResult e4 = eval(r4.root, NULL);
+  ASSERT_TRUE(e4.ok);
+  ASSERT_NEAR(e4.value.re, M_PI / 2.0, 1e-9);
+  ASSERT_NEAR(e4.value.im, 0.0, 1e-9);
+  eval_result_free(&e4);
+  parse_result_free(&r4);
+
+  ParseResult r5 = parse("acos(0)");
+  EvalResult e5 = eval(r5.root, NULL);
+  ASSERT_TRUE(e5.ok);
+  ASSERT_NEAR(e5.value.re, M_PI / 2.0, 1e-9);
+  ASSERT_NEAR(e5.value.im, 0.0, 1e-9);
+  eval_result_free(&e5);
+  parse_result_free(&r5);
+
+  ParseResult r6 = parse("atan(1)");
+  EvalResult e6 = eval(r6.root, NULL);
+  ASSERT_TRUE(e6.ok);
+  ASSERT_NEAR(e6.value.re, M_PI / 4.0, 1e-9);
+  ASSERT_NEAR(e6.value.im, 0.0, 1e-9);
+  eval_result_free(&e6);
+  parse_result_free(&r6);
 
   PASS();
 }
@@ -189,7 +213,7 @@ static void test_eval_symtab(void) {
 
 
 static void test_eval_hyperbolic(void) {
-  TEST("eval: sinh(0) = 0, cosh(0) = 1");
+  TEST("eval: sinh/cosh/tanh real values");
   ParseResult r1 = parse("sinh(0)");
   EvalResult e1 = eval(r1.root, NULL);
   ASSERT_TRUE(e1.ok);
@@ -203,6 +227,34 @@ static void test_eval_hyperbolic(void) {
   ASSERT_CNEAR(e2.value, c_real(1.0), 1e-9);
   eval_result_free(&e2);
   parse_result_free(&r2);
+
+  ParseResult r3 = parse("tanh(0)");
+  EvalResult e3 = eval(r3.root, NULL);
+  ASSERT_TRUE(e3.ok);
+  ASSERT_CNEAR(e3.value, c_real(0.0), 1e-9);
+  eval_result_free(&e3);
+  parse_result_free(&r3);
+
+  ParseResult r4 = parse("sinh(1)");
+  EvalResult e4 = eval(r4.root, NULL);
+  ASSERT_TRUE(e4.ok);
+  ASSERT_CNEAR(e4.value, c_real(sinh(1.0)), 1e-9);
+  eval_result_free(&e4);
+  parse_result_free(&r4);
+
+  ParseResult r5 = parse("cosh(1)");
+  EvalResult e5 = eval(r5.root, NULL);
+  ASSERT_TRUE(e5.ok);
+  ASSERT_CNEAR(e5.value, c_real(cosh(1.0)), 1e-9);
+  eval_result_free(&e5);
+  parse_result_free(&r5);
+
+  ParseResult r6 = parse("tanh(1)");
+  EvalResult e6 = eval(r6.root, NULL);
+  ASSERT_TRUE(e6.ok);
+  ASSERT_CNEAR(e6.value, c_real(tanh(1.0)), 1e-9);
+  eval_result_free(&e6);
+  parse_result_free(&r6);
   PASS();
 }
 

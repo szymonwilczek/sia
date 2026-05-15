@@ -455,6 +455,20 @@ AstNode *sym_simplify(AstNode *node) {
       AstNode *two_u = ast_binop(OP_MUL, ast_number(2), arg);
       return ast_unary_neg(ast_func_call("cos", 3, (AstNode *[]){two_u}, 1));
     }
+    /* cosh(u)^2 - sinh(u)^2 -> 1 */
+    if (is_call1_squared(L, "cosh") && is_call1_squared(R, "sinh") &&
+        ast_equal(L->as.binop.left->as.call.args[0],
+                  R->as.binop.left->as.call.args[0])) {
+      ast_free(node);
+      return ast_number(1);
+    }
+    /* sinh(u)^2 - cosh(u)^2 -> -1 */
+    if (is_call1_squared(L, "sinh") && is_call1_squared(R, "cosh") &&
+        ast_equal(L->as.binop.left->as.call.args[0],
+                  R->as.binop.left->as.call.args[0])) {
+      ast_free(node);
+      return ast_number(-1);
+    }
     break;
 
   case OP_MUL:
@@ -657,6 +671,14 @@ AstNode *sym_simplify(AstNode *node) {
       AstNode *args[] = {arg};
       AstNode *t = ast_func_call("tan", 3, args, 1);
       return ast_binop(OP_DIV, ast_number(1), t);
+    }
+    /* sinh(u) / cosh(u) -> tanh(u) */
+    if (is_call1(L, "sinh") && is_call1(R, "cosh") &&
+        ast_equal(L->as.call.args[0], R->as.call.args[0])) {
+      AstNode *arg = ast_clone(L->as.call.args[0]);
+      ast_free(node);
+      AstNode *args[] = {arg};
+      return ast_func_call("tanh", 4, args, 1);
     }
     break;
 

@@ -55,6 +55,12 @@ TrigKind trig_kind(const AstNode *node) {
     return TRIG_KIND_ACOS;
   if (strcmp(name, "atan") == 0)
     return TRIG_KIND_ATAN;
+  if (strcmp(name, "sinh") == 0)
+    return TRIG_KIND_SINH;
+  if (strcmp(name, "cosh") == 0)
+    return TRIG_KIND_COSH;
+  if (strcmp(name, "tanh") == 0)
+    return TRIG_KIND_TANH;
   return TRIG_KIND_NONE;
 }
 
@@ -77,6 +83,12 @@ Complex trig_eval_value(TrigKind kind, Complex value, int *ok, char **error) {
     return c_acos(value);
   case TRIG_KIND_ATAN:
     return c_atan(value);
+  case TRIG_KIND_SINH:
+    return c_sinh(value);
+  case TRIG_KIND_COSH:
+    return c_cosh(value);
+  case TRIG_KIND_TANH:
+    return c_tanh(value);
   default:
     if (ok)
       *ok = 0;
@@ -95,7 +107,7 @@ static AstNode *pi_fraction(long long num, long long den) {
       ast_number((double)den));
 }
 
-static AstNode *maybe_special_inverse_trig(TrigKind kind, Complex value) {
+static AstNode *maybe_special_trig(TrigKind kind, Complex value) {
   if (!c_is_real(value))
     return NULL;
 
@@ -123,6 +135,15 @@ static AstNode *maybe_special_inverse_trig(TrigKind kind, Complex value) {
       return pi_fraction(1, 4);
     if (c_is_minus_one(value))
       return ast_unary_neg(pi_fraction(1, 4));
+    break;
+  case TRIG_KIND_SINH:
+  case TRIG_KIND_TANH:
+    if (c_is_zero(value))
+      return ast_number(0);
+    break;
+  case TRIG_KIND_COSH:
+    if (c_is_zero(value))
+      return ast_number(1);
     break;
   default:
     break;
@@ -167,10 +188,27 @@ AstNode *trig_simplify_call(AstNode *node) {
     return sym_simplify(ast_unary_neg(node));
   }
 
+  if ((kind == TRIG_KIND_SINH || kind == TRIG_KIND_TANH) &&
+      arg->type == AST_UNARY_NEG) {
+    AstNode *operand = arg->as.unary.operand;
+    arg->as.unary.operand = NULL;
+    ast_free(arg);
+    node->as.call.args[0] = operand;
+    return sym_simplify(ast_unary_neg(node));
+  }
+
+  if (kind == TRIG_KIND_COSH && arg->type == AST_UNARY_NEG) {
+    AstNode *operand = arg->as.unary.operand;
+    arg->as.unary.operand = NULL;
+    ast_free(arg);
+    node->as.call.args[0] = operand;
+    return sym_simplify(node);
+  }
+
   if (arg->type != AST_NUMBER)
     return node;
 
-  AstNode *special = maybe_special_inverse_trig(kind, arg->as.number);
+  AstNode *special = maybe_special_trig(kind, arg->as.number);
   if (special) {
     ast_free(node);
     return special;
@@ -234,6 +272,19 @@ AstNode *trig_diff_call(const AstNode *node, const char *var) {
         OP_DIV, ast_number(1),
         ast_binop(OP_ADD, ast_number(1),
                   ast_binop(OP_POW, ast_clone(inner), ast_number(2))));
+    break;
+  case TRIG_KIND_SINH:
+    outer_d = ast_func_call("cosh", 4, (AstNode *[]){ast_clone(inner)}, 1);
+    break;
+  case TRIG_KIND_COSH:
+    outer_d = ast_func_call("sinh", 4, (AstNode *[]){ast_clone(inner)}, 1);
+    break;
+  case TRIG_KIND_TANH:
+    outer_d = ast_binop(
+        OP_DIV, ast_number(1),
+        ast_binop(OP_POW,
+                  ast_func_call("cosh", 4, (AstNode *[]){ast_clone(inner)}, 1),
+                  ast_number(2)));
     break;
   default:
     break;

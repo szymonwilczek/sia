@@ -64,10 +64,35 @@ static void test_latex_inverse_trig(void) {
   PASS();
 }
 
+static void test_latex_hyperbolic(void) {
+  TEST("latex: sinh, cosh, tanh");
+
+  ParseResult r1 = parse("sinh(x)");
+  char *s1 = ast_to_latex(r1.root);
+  ASSERT_STR_EQ(s1, "\\sinh\\left(x\\right)");
+  free(s1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("cosh(x)");
+  char *s2 = ast_to_latex(r2.root);
+  ASSERT_STR_EQ(s2, "\\cosh\\left(x\\right)");
+  free(s2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("tanh(x)");
+  char *s3 = ast_to_latex(r3.root);
+  ASSERT_STR_EQ(s3, "\\tanh\\left(x\\right)");
+  free(s3);
+  parse_result_free(&r3);
+
+  PASS();
+}
+
 
 void tests_trigonometry_functional(void) {
   test_integrate_sin();
   test_integrate_cos();
   test_latex_sin();
   test_latex_inverse_trig();
+  test_latex_hyperbolic();
 }

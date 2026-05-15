@@ -10,7 +10,10 @@ typedef enum {
   TRIG_KIND_TAN,
   TRIG_KIND_ASIN,
   TRIG_KIND_ACOS,
-  TRIG_KIND_ATAN
+  TRIG_KIND_ATAN,
+  TRIG_KIND_SINH,
+  TRIG_KIND_COSH,
+  TRIG_KIND_TANH
 } TrigKind;
 
 TrigKind trig_kind(const AstNode *node);
