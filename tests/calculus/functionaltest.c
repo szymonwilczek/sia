@@ -270,6 +270,49 @@ static void test_integrate_linearity_sum(void) {
   PASS();
 }
 
+static void test_integrate_linear_substitution_cos(void) {
+  TEST("int: integral(cos(3*x), x) = 1/3*sin(3*x)");
+  ParseResult r = parse("cos(3*x)");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_TRUE(strcmp(s, "1/3*sin(3*x)") == 0 || strcmp(s, "sin(3*x)/3") == 0);
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_linear_substitution_exp(void) {
+  TEST("int: integral(exp(2*x), x) = 1/2*exp(2*x)");
+  ParseResult r = parse("exp(2*x)");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_TRUE(strcmp(s, "1/2*exp(2*x)") == 0 || strcmp(s, "exp(2*x)/2") == 0);
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_linear_substitution_shifted_sin(void) {
+  TEST("int: integral(sin(2*x + 1), x) = -1/2*cos(2*x + 1)");
+  ParseResult r = parse("sin(2*x + 1)");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_TRUE(strcmp(s, "(-1/2*cos(2*x + 1))") == 0 ||
+              strcmp(s, "-1/2*cos(2*x + 1)") == 0 ||
+              strcmp(s, "(-cos(2*x + 1))/2") == 0 ||
+              strcmp(s, "-1/2*cos(1 + 2*x)") == 0 ||
+              strcmp(s, "(-1/2*cos(1 + 2*x))") == 0);
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_integrate_1_over_x(void) {
   TEST("int: integral(x^(-1), x) = ln(x)");
   ParseResult r = parse("x^(-1)");
@@ -366,6 +409,9 @@ void tests_calculus_functional(void) {
   test_integrate_ln();
   test_integrate_hoisted_trig_constant();
   test_integrate_linearity_sum();
+  test_integrate_linear_substitution_cos();
+  test_integrate_linear_substitution_exp();
+  test_integrate_linear_substitution_shifted_sin();
   test_integrate_1_over_x();
   test_integrate_1_div_x();
   test_integrate_x_div_x();
