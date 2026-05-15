@@ -1104,6 +1104,28 @@ static void flatten_add(AstNode *node, AstNode ***terms, size_t *count,
     AstNode *neg = sym_simplify(ast_unary_neg(ast_clone(node->as.binop.right)));
     flatten_add(neg, terms, count, cap);
     ast_free(neg);
+  } else if (node->type == AST_UNARY_NEG &&
+             node->as.unary.operand->type == AST_BINOP &&
+             node->as.unary.operand->as.binop.op == OP_ADD) {
+    AstNode *neg_left = sym_simplify(
+        ast_unary_neg(ast_clone(node->as.unary.operand->as.binop.left)));
+    AstNode *neg_right = sym_simplify(
+        ast_unary_neg(ast_clone(node->as.unary.operand->as.binop.right)));
+    flatten_add(neg_left, terms, count, cap);
+    flatten_add(neg_right, terms, count, cap);
+    ast_free(neg_left);
+    ast_free(neg_right);
+  } else if (node->type == AST_UNARY_NEG &&
+             node->as.unary.operand->type == AST_BINOP &&
+             node->as.unary.operand->as.binop.op == OP_SUB) {
+    AstNode *neg_left = sym_simplify(
+        ast_unary_neg(ast_clone(node->as.unary.operand->as.binop.left)));
+    AstNode *right =
+        sym_simplify(ast_clone(node->as.unary.operand->as.binop.right));
+    flatten_add(neg_left, terms, count, cap);
+    flatten_add(right, terms, count, cap);
+    ast_free(neg_left);
+    ast_free(right);
   } else {
     if (*count >= *cap) {
       *cap *= 2;

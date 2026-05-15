@@ -254,6 +254,16 @@ static void test_full_simplify_abs_power_identity(void) {
   PASS();
 }
 
+static void test_full_simplify_conjugate_radical_squares(void) {
+  TEST("simplify: conjugate radical squares cancel");
+  ParseResult r = parse("(x+sqrt(2))^2*(x-sqrt(2))^2 - (x^2-2)^2");
+  AstNode *s = sym_full_simplify(ast_clone(r.root));
+  ASSERT_TRUE(is_num_node(s, 0));
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_expand(void) {
   TEST("expand: (x+1)^2 -> 1 + 2*x + x^2 (or similar collected form)");
   ParseResult r = parse("(x+1)^2");
@@ -291,5 +301,6 @@ void tests_simplification_functional(void) {
   test_simplify_distributive();
   test_full_simplify_distribution();
   test_full_simplify_abs_power_identity();
+  test_full_simplify_conjugate_radical_squares();
   test_expand();
 }
