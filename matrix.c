@@ -139,6 +139,12 @@ Matrix *matrix_inverse(const Matrix *m) {
   if (c_abs(d) < 1e-15)
     return NULL;
 
+  if (n == 1) {
+    Matrix *inv = matrix_create(1, 1);
+    matrix_set(inv, 0, 0, c_div(c_real(1.0), matrix_get(m, 0, 0)));
+    return inv;
+  }
+
   Matrix *adj = matrix_create(n, n);
 
   for (size_t i = 0; i < n; i++)

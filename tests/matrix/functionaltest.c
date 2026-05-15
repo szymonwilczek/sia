@@ -1,5 +1,5 @@
-#include "../test_support.h"
 #include "../test_suites.h"
+#include "../test_support.h"
 
 static void test_matrix_create(void) {
   TEST("matrix: create and access");
@@ -13,7 +13,6 @@ static void test_matrix_create(void) {
   matrix_free(m);
   PASS();
 }
-
 
 static void test_matrix_add(void) {
   TEST("matrix: addition");
@@ -36,7 +35,6 @@ static void test_matrix_add(void) {
   matrix_free(c);
   PASS();
 }
-
 
 static void test_matrix_mul(void) {
   TEST("matrix: multiplication");
@@ -62,7 +60,6 @@ static void test_matrix_mul(void) {
   PASS();
 }
 
-
 static void test_matrix_inverse(void) {
   TEST("matrix: inverse 2x2");
   Matrix *m = matrix_create(2, 2);
@@ -85,6 +82,20 @@ static void test_matrix_inverse(void) {
   PASS();
 }
 
+static void test_matrix_inverse_scalar(void) {
+  TEST("matrix: inverse 1x1");
+  Matrix *m = matrix_create(1, 1);
+  Matrix *inv = NULL;
+
+  matrix_set(m, 0, 0, c_real(4));
+  inv = matrix_inverse(m);
+  ASSERT_TRUE(inv != NULL);
+  ASSERT_CNEAR(matrix_get(inv, 0, 0), c_real(0.25), 1e-9);
+
+  matrix_free(m);
+  matrix_free(inv);
+  PASS();
+}
 
 static void test_matrix_transpose(void) {
   TEST("matrix: transpose");
@@ -105,7 +116,6 @@ static void test_matrix_transpose(void) {
   PASS();
 }
 
-
 static void test_matrix_identity(void) {
   TEST("matrix: identity 3x3");
   Matrix *id = matrix_identity(3);
@@ -117,7 +127,6 @@ static void test_matrix_identity(void) {
   PASS();
 }
 
-
 static void test_matrix_trace(void) {
   TEST("matrix: trace");
   Matrix *m = matrix_create(3, 3);
@@ -128,7 +137,6 @@ static void test_matrix_trace(void) {
   matrix_free(m);
   PASS();
 }
-
 
 static void test_matrix_to_string(void) {
   TEST("matrix: serialization");
@@ -144,7 +152,6 @@ static void test_matrix_to_string(void) {
   PASS();
 }
 
-
 static void test_matrix_singular(void) {
   TEST("matrix: inverse of singular returns NULL");
   Matrix *m = matrix_create(2, 2);
@@ -157,7 +164,6 @@ static void test_matrix_singular(void) {
   matrix_free(m);
   PASS();
 }
-
 
 static void test_matrix_expand(void) {
   TEST("expand: [x, 1; 1, x]^2 -> [1 + x^2, 2*x; 2*x, 1 + x^2]");
@@ -176,7 +182,6 @@ static void test_matrix_expand(void) {
 
 /* Differentiation */
 
-
 static void test_diff_matrix(void) {
   TEST("diff: d/dx([x^2, x]) = [2*x, 1]");
   ParseResult r = parse("[x^2, x]");
@@ -191,12 +196,12 @@ static void test_diff_matrix(void) {
   PASS();
 }
 
-
 void tests_matrix_functional(void) {
   test_matrix_create();
   test_matrix_add();
   test_matrix_mul();
   test_matrix_inverse();
+  test_matrix_inverse_scalar();
   test_matrix_transpose();
   test_matrix_identity();
   test_matrix_trace();
