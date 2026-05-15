@@ -2445,6 +2445,24 @@ static void test_solve_log_variable_base(void) {
   PASS();
 }
 
+static void test_solve_newton_taylor_even_root(void) {
+  TEST("solve: Newton on Taylor(cosh(x)-1, 0, 4) near 1 -> 0");
+  ParseResult pr = parse("cosh(x) - 1");
+  SymTab st;
+  AstNode *series = NULL;
+  memset(&st, 0, sizeof(st));
+  series = sym_taylor(pr.root, "x", ast_number(0), 4);
+  ASSERT_TRUE(series != NULL);
+  SolveResult r = sym_solve(series, "x", c_real(1.0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_CNEAR(r.roots[0], c_real(0.0), 1e-5);
+  solve_result_free(&r);
+  ast_free(series);
+  parse_result_free(&pr);
+  PASS();
+}
+
 /* Main */
 
 int main(void) {
@@ -2644,6 +2662,7 @@ int main(void) {
   test_solve_newton_exp();
   test_solve_newton_after_simplify();
   test_solve_newton_tanh();
+  test_solve_newton_taylor_even_root();
   test_solve_log_base();
   test_solve_log_variable_base();
 

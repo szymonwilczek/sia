@@ -121,6 +121,26 @@ Fraction fraction_exact_from_double(double v, int *exact) {
 
 Fraction fraction_from_double(double x) {
   Fraction f;
+  static const long long fallback_scales[] = {
+      1000000000000000000LL,
+      100000000000000000LL,
+      10000000000000000LL,
+      1000000000000000LL,
+      100000000000000LL,
+      10000000000000LL,
+      1000000000000LL,
+      100000000000LL,
+      10000000000LL,
+      1000000000LL,
+      100000000LL,
+      10000000LL,
+      1000000LL,
+      100000LL,
+      10000LL,
+      1000LL,
+      100LL,
+      10LL,
+  };
   if (isnan(x) || isinf(x)) {
     f.num = (long long)x;
     f.den = 1;
@@ -174,8 +194,21 @@ Fraction fraction_from_double(double x) {
     f.num = sign * n_curr;
     f.den = d_curr;
   } else {
-    /* fallback to simple value */
-    f.num = (long long)(sign * x);
+    /* fallback to a scaled decimal approximation without collapsing tiny
+     * non-zero values to zero */
+    for (size_t i = 0; i < sizeof(fallback_scales) / sizeof(fallback_scales[0]);
+         i++) {
+      long long scale = fallback_scales[i];
+      if (x > (double)LLONG_MAX / (double)scale)
+        continue;
+      long long scaled = llround(x * (double)scale);
+      if (scaled != 0) {
+        f = fraction_make(sign * scaled, scale);
+        return f;
+      }
+    }
+
+    f.num = sign * ((x >= 0.5) ? 1 : 0);
     f.den = 1;
   }
 
