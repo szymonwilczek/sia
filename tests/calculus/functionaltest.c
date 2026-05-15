@@ -523,6 +523,82 @@ static void test_integrate_partial_fractions_cubic_factorization(void) {
   PASS();
 }
 
+static void test_integrate_partial_fractions_symbolic_sqrt(void) {
+  TEST("int: partial fractions symbolic sqrt integral(x^4/(x^3 - 1), x)");
+  ParseResult r = parse("x^4/(x^3 - 1)");
+  AstNode *expr = ast_canonicalize(ast_clone(r.root));
+  AstNode *result = NULL;
+  char *s = NULL;
+
+  expr = sym_simplify(expr);
+  result = sym_integrate(expr, "x");
+  ASSERT_TRUE(result != NULL);
+
+  s = ast_to_string(result);
+  ASSERT_TRUE(strstr(s, "sqrt(3)") != NULL);
+  ASSERT_TRUE(strstr(s, "atan(") != NULL);
+  ASSERT_TRUE(strstr(s, "ln(") != NULL);
+  ASSERT_TRUE(strstr(s, "10864") == NULL);
+  ASSERT_TRUE(strstr(s, "18817") == NULL);
+
+  free(s);
+  ast_free(expr);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_partial_fractions_four_linear(void) {
+  TEST("int: partial fractions 4 linear factors "
+       "integral(1/(x*(x-1)*(x-2)*(x-3)), x)");
+  ParseResult r = parse("1/(x*(x-1)*(x-2)*(x-3))");
+  AstNode *expr = ast_canonicalize(ast_clone(r.root));
+  AstNode *result = NULL;
+  char *s = NULL;
+
+  expr = sym_simplify(expr);
+  result = sym_integrate(expr, "x");
+  ASSERT_TRUE(result != NULL);
+
+  s = ast_to_string(result);
+  ASSERT_TRUE(strstr(s, "ln(abs(") != NULL);
+  ASSERT_TRUE(strstr(s, "abs(x)") != NULL);
+  ASSERT_TRUE(strstr(s, "abs(-1 + x)") != NULL ||
+              strstr(s, "abs(x - 1)") != NULL);
+  ASSERT_TRUE(strstr(s, "abs(-2 + x)") != NULL ||
+              strstr(s, "abs(x - 2)") != NULL);
+  ASSERT_TRUE(strstr(s, "abs(-3 + x)") != NULL ||
+              strstr(s, "abs(x - 3)") != NULL);
+
+  free(s);
+  ast_free(expr);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_partial_fractions_repeated_quadratic(void) {
+  TEST("int: partial fractions repeated quadratic integral(1/(x^2 + 1)^2, x)");
+  ParseResult r = parse("1/(x^2 + 1)^2");
+  AstNode *expr = ast_canonicalize(ast_clone(r.root));
+  AstNode *result = NULL;
+  char *s = NULL;
+
+  expr = sym_simplify(expr);
+  result = sym_integrate(expr, "x");
+  ASSERT_TRUE(result != NULL);
+
+  s = ast_to_string(result);
+  ASSERT_TRUE(strstr(s, "atan(x)") != NULL);
+  ASSERT_TRUE(strstr(s, "x") != NULL);
+
+  free(s);
+  ast_free(expr);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_integrate_by_parts_x_cos(void) {
   TEST("int: by parts integral(x*cos(x), x)");
   ParseResult r = parse("x*cos(x)");
@@ -648,6 +724,9 @@ void tests_calculus_functional(void) {
   test_integrate_partial_fractions_repeated_root();
   test_integrate_partial_fractions_mixed_linear_quadratic();
   test_integrate_partial_fractions_cubic_factorization();
+  test_integrate_partial_fractions_symbolic_sqrt();
+  test_integrate_partial_fractions_four_linear();
+  test_integrate_partial_fractions_repeated_quadratic();
   test_integrate_by_parts_x_cos();
   test_integrate_by_parts_x2_exp();
   test_integrate_by_parts_recurring_exp_sin();

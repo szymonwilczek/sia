@@ -119,6 +119,20 @@ static int fold_unary_numeric_call(const char *name, Complex arg,
     return 1;
   }
   if (strcmp(name, "sqrt") == 0) {
+    if (arg.exact && c_is_real(arg) && arg.re >= 0) {
+      Fraction frac;
+      if (c_real_fraction(arg, &frac) && frac.num >= 0) {
+        long long p = frac.num;
+        long long q = frac.den;
+        long long sp = (long long)round(sqrt((double)p));
+        long long sq = (long long)round(sqrt((double)q));
+        if (sp * sp == p && sq * sq == q) {
+          *out = c_from_fractions(fraction_make(sp, sq), fraction_make(0, 1));
+          return 1;
+        }
+        return 0;
+      }
+    }
     *out = c_sqrt(arg);
     return 1;
   }
@@ -2273,6 +2287,94 @@ static int poly1d_try_real_root(const Poly1D *poly, const char *var,
 }
 
 static int pfd_factor_poly(const Poly1D *poly, const char *var,
+                           PfdFactorList *list);
+
+static int pfd_factor_even_substitution(const Poly1D *poly, const char *var,
+                                        PfdFactorList *list) {
+  Poly1D u_poly = {0};
+  u_poly.deg = poly->deg / 2;
+  for (int i = 0; i <= u_poly.deg; i++)
+    u_poly.coeffs[i] = poly->coeffs[2 * i];
+
+  while (u_poly.deg >= 1) {
+    Poly1D quad = {0};
+    Complex u_root = c_real(0.0);
+    int found = 0;
+
+    if (u_poly.deg == 1) {
+      Complex ua = u_poly.coeffs[1];
+      quad.coeffs[0] = c_div(u_poly.coeffs[0], ua);
+      quad.coeffs[2] = c_real(1.0);
+      quad.deg = 2;
+      return pfd_factor_poly(&quad, var, list);
+    }
+
+    {
+      static const double seeds[] = {0.0, 1.0,  -1.0, 2.0,  -2.0, 0.5, -0.5,
+                                     3.0, -3.0, 4.0,  -4.0, 5.0,  -5.0};
+      for (size_t s = 0; s < sizeof(seeds) / sizeof(seeds[0]); s++) {
+        Complex val = c_real(seeds[s]);
+        Complex eval = c_real(0.0);
+        Complex power = c_real(1.0);
+        for (int i = 0; i <= u_poly.deg; i++) {
+          eval = c_add(eval, c_mul(u_poly.coeffs[i], power));
+          if (i < u_poly.deg)
+            power = c_mul(power, val);
+        }
+        if (c_abs(eval) < 1e-9) {
+          u_root = val;
+          found = 1;
+          break;
+        }
+      }
+    }
+
+    if (!found && u_poly.deg == 2) {
+      Complex a = u_poly.coeffs[2];
+      Complex b = u_poly.coeffs[1];
+      Complex c = u_poly.coeffs[0];
+      Complex disc = c_sub(c_mul(b, b), c_mul(c_real(4.0), c_mul(a, c)));
+      if (c_is_real(disc) && disc.re >= -1e-12) {
+        if (fabs(disc.re) < 1e-12)
+          disc = c_real(0.0);
+        u_root = c_div(c_sub(c_neg(b), c_sqrt(disc)), c_mul(c_real(2.0), a));
+        found = 1;
+      }
+    }
+
+    if (!found)
+      return 0;
+
+    {
+      Poly1D u_linear = {0};
+      Poly1D u_quot = {0};
+      Poly1D u_rem = {0};
+
+      u_linear.coeffs[0] = c_neg(u_root);
+      u_linear.coeffs[1] = c_real(1.0);
+      u_linear.deg = 1;
+
+      if (!poly1d_divmod(&u_poly, &u_linear, &u_quot, &u_rem))
+        return 0;
+      for (int i = 0; i <= u_rem.deg; i++) {
+        if (c_abs(u_rem.coeffs[i]) > 1e-8)
+          return 0;
+      }
+
+      quad.coeffs[0] = c_neg(u_root);
+      quad.coeffs[2] = c_real(1.0);
+      quad.deg = 2;
+
+      if (!pfd_factor_poly(&quad, var, list))
+        return 0;
+
+      u_poly = u_quot;
+    }
+  }
+  return 1;
+}
+
+static int pfd_factor_poly(const Poly1D *poly, const char *var,
                            PfdFactorList *list) {
   if (poly->deg < 1)
     return 0;
@@ -2339,8 +2441,42 @@ static int pfd_factor_poly(const Poly1D *poly, const char *var,
     Poly1D quotient = {0};
     Poly1D remainder = {0};
 
-    if (!poly1d_try_real_root(poly, var, &root))
-      return 0;
+    if (!poly1d_try_real_root(poly, var, &root)) {
+      int only_even = 1;
+      for (int i = 1; i <= poly->deg; i += 2)
+        if (!c_is_zero(poly->coeffs[i])) {
+          only_even = 0;
+          break;
+        }
+      if (!only_even || poly->deg < 4 || poly->deg % 2 != 0)
+        return 0;
+      return pfd_factor_even_substitution(poly, var, list);
+    }
+
+    {
+      static const int snap_denoms[] = {1, 2, 3, 4, 5, 6, 8, 10, 12};
+      for (size_t s = 0; s < sizeof(snap_denoms) / sizeof(snap_denoms[0]);
+           s++) {
+        int d = snap_denoms[s];
+        double approx = root.re * d;
+        long long n = (long long)round(approx);
+        if (fabs(approx - (double)n) < 1e-6 * d) {
+          Complex snapped =
+              c_from_fractions(fraction_make(n, d), fraction_make(0, 1));
+          Poly1D tl = {0};
+          Poly1D tq = {0};
+          Poly1D tr = {0};
+          tl.coeffs[0] = c_neg(snapped);
+          tl.coeffs[1] = c_real(1.0);
+          tl.deg = 1;
+          if (poly1d_divmod(poly, &tl, &tq, &tr) && poly1d_is_zero(&tr)) {
+            root = snapped;
+            break;
+          }
+        }
+      }
+    }
+
     linear.coeffs[0] = c_neg(root);
     linear.coeffs[1] = c_real(1.0);
     linear.deg = 1;
@@ -2510,6 +2646,22 @@ static AstNode *pfd_integrate_linear_term(Complex coeff, const Poly1D *factor,
                 ast_binop(OP_POW, factor_ast, ast_number(power - 1))));
 }
 
+static AstNode *build_sqrt_node(Complex val) {
+  if (val.exact && c_is_real(val) && val.re >= 0) {
+    Fraction frac;
+    if (c_real_fraction(val, &frac) && frac.num >= 0) {
+      long long p = frac.num;
+      long long q = frac.den;
+      long long sp = (long long)round(sqrt((double)p));
+      long long sq = (long long)round(sqrt((double)q));
+      if (sp * sp == p && sq * sq == q)
+        return ast_number_complex(
+            c_from_fractions(fraction_make(sp, sq), fraction_make(0, 1)));
+    }
+  }
+  return ast_func_call("sqrt", 4, (AstNode *[]){ast_number_complex(val)}, 1);
+}
+
 static AstNode *pfd_integrate_quadratic_term(Complex ax_coeff, Complex b_coeff,
                                              const Poly1D *factor,
                                              const char *var) {
@@ -2529,21 +2681,112 @@ static AstNode *pfd_integrate_quadratic_term(Complex ax_coeff, Complex b_coeff,
   }
 
   if (!c_is_zero(beta)) {
+    AstNode *sqrt_delta = build_sqrt_node(delta);
     AstNode *x_term =
         ast_binop(OP_MUL, ast_number_complex(c_mul(c_real(2.0), a)),
                   ast_variable(var, strlen(var)));
     AstNode *atan_arg = sym_full_simplify(
         ast_binop(OP_DIV, ast_binop(OP_ADD, x_term, ast_number_complex(b)),
-                  ast_number_complex(c_sqrt(delta))));
+                  ast_clone(sqrt_delta)));
     AstNode *atan_ast = ast_func_call("atan", 4, (AstNode *[]){atan_arg}, 1);
-    AstNode *scaled = sym_full_simplify(ast_binop(
-        OP_MUL,
-        ast_number_complex(c_div(c_mul(c_real(2.0), beta), c_sqrt(delta))),
-        atan_ast));
+    AstNode *scale = sym_full_simplify(ast_binop(
+        OP_DIV, ast_number_complex(c_mul(c_real(2.0), beta)), sqrt_delta));
+    AstNode *scaled = sym_full_simplify(ast_binop(OP_MUL, scale, atan_ast));
     if (!result)
       result = scaled;
     else
       result = sym_full_simplify(ast_binop(OP_ADD, result, scaled));
+  }
+
+  return result ? result : ast_number(0);
+}
+
+static AstNode *pfd_integrate_inv_quadratic_power(const Poly1D *factor, int n,
+                                                  const char *var) {
+  Complex a = factor->coeffs[2];
+  Complex b = factor->coeffs[1];
+  Complex c0 = factor->coeffs[0];
+  Complex delta = c_sub(c_mul(c_real(4.0), c_mul(a, c0)), c_mul(b, b));
+
+  if (n == 1) {
+    AstNode *sqrt_d = build_sqrt_node(delta);
+    AstNode *x_term =
+        ast_binop(OP_MUL, ast_number_complex(c_mul(c_real(2.0), a)),
+                  ast_variable(var, strlen(var)));
+    AstNode *atan_arg = sym_full_simplify(
+        ast_binop(OP_DIV, ast_binop(OP_ADD, x_term, ast_number_complex(b)),
+                  ast_clone(sqrt_d)));
+    AstNode *atan_ast = ast_func_call("atan", 4, (AstNode *[]){atan_arg}, 1);
+    AstNode *scale =
+        sym_full_simplify(ast_binop(OP_DIV, ast_number(2), sqrt_d));
+    return sym_full_simplify(ast_binop(OP_MUL, scale, atan_ast));
+  }
+
+  {
+    AstNode *rec = pfd_integrate_inv_quadratic_power(factor, n - 1, var);
+    AstNode *two_ax_b = NULL;
+    AstNode *first = NULL;
+    AstNode *second = NULL;
+    Complex nm1 = c_real((double)(n - 1));
+    Complex nm1_delta = c_mul(nm1, delta);
+    Complex rec_coeff = c_div(
+        c_mul(c_mul(c_real(2.0), a), c_real((double)(2 * n - 3))), nm1_delta);
+
+    if (!rec)
+      return NULL;
+
+    two_ax_b = sym_full_simplify(
+        ast_binop(OP_ADD,
+                  ast_binop(OP_MUL, ast_number_complex(c_mul(c_real(2.0), a)),
+                            ast_variable(var, strlen(var))),
+                  ast_number_complex(b)));
+
+    first = sym_full_simplify(
+        ast_binop(OP_DIV, two_ax_b,
+                  ast_binop(OP_MUL, ast_number_complex(nm1_delta),
+                            ast_binop(OP_POW, poly1d_to_ast(factor, var),
+                                      ast_number(n - 1)))));
+
+    second = sym_full_simplify(
+        ast_binop(OP_MUL, ast_number_complex(rec_coeff), rec));
+
+    return sym_full_simplify(ast_binop(OP_ADD, first, second));
+  }
+}
+
+static AstNode *pfd_integrate_quadratic_term_power(Complex ax_coeff,
+                                                   Complex b_coeff,
+                                                   const Poly1D *factor,
+                                                   int power, const char *var) {
+  Complex a = factor->coeffs[2];
+  Complex b = factor->coeffs[1];
+  Complex alpha = c_div(ax_coeff, c_mul(c_real(2.0), a));
+  Complex beta = c_sub(b_coeff, c_mul(alpha, b));
+  AstNode *result = NULL;
+
+  if (power == 1)
+    return pfd_integrate_quadratic_term(ax_coeff, b_coeff, factor, var);
+
+  if (!c_is_zero(alpha)) {
+    Complex scale = c_neg(c_div(alpha, c_real((double)(power - 1))));
+    result = sym_full_simplify(ast_binop(
+        OP_DIV, ast_number_complex(scale),
+        ast_binop(OP_POW, poly1d_to_ast(factor, var), ast_number(power - 1))));
+  }
+
+  if (!c_is_zero(beta)) {
+    AstNode *inv_int = pfd_integrate_inv_quadratic_power(factor, power, var);
+    AstNode *term = NULL;
+    if (!inv_int) {
+      ast_free(result);
+      return NULL;
+    }
+    term =
+        sym_full_simplify(ast_binop(OP_MUL, ast_number_complex(beta), inv_int));
+    if (result)
+      result = sym_full_simplify(ast_binop(OP_ADD, result, term));
+    else
+      result = term;
   }
 
   return result ? result : ast_number(0);
@@ -2629,16 +2872,9 @@ static AstNode *integrate_partial_fractions(const AstNode *expr,
                                          &factors.items[i].base, power, var);
         coeff_index++;
       } else {
-        if (power != 1) {
-          ast_free(numer_ast);
-          ast_free(denom_ast);
-          ast_free(quotient_integral);
-          ast_free(proper_integral);
-          return NULL;
-        }
-        term = pfd_integrate_quadratic_term(coeffs[coeff_index],
-                                            coeffs[coeff_index + 1],
-                                            &factors.items[i].base, var);
+        term = pfd_integrate_quadratic_term_power(
+            coeffs[coeff_index], coeffs[coeff_index + 1],
+            &factors.items[i].base, power, var);
         coeff_index += 2;
       }
 
