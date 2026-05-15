@@ -107,6 +107,69 @@ static AstNode *pi_fraction(long long num, long long den) {
       ast_number((double)den));
 }
 
+static int complex_imaginary_unit_sign(Complex z) {
+  if (z.exact) {
+    if (!fraction_is_zero(z.re_q) || !fraction_is_one(z.im_q))
+      return z.im_q.num == -z.im_q.den && fraction_is_zero(z.re_q) ? -1 : 0;
+    return 1;
+  }
+  if (z.re != 0.0)
+    return 0;
+  if (z.im == 1.0)
+    return 1;
+  if (z.im == -1.0)
+    return -1;
+  return 0;
+}
+
+static int node_imaginary_unit_sign(const AstNode *n) {
+  if (!n || n->type != AST_NUMBER)
+    return 0;
+  return complex_imaginary_unit_sign(n->as.number);
+}
+
+static int extract_imaginary_multiple(const AstNode *n, const AstNode **inner,
+                                      int *sign) {
+  int unit_sign = 0;
+
+  if (!n)
+    return 0;
+  if (n->type == AST_UNARY_NEG) {
+    if (!extract_imaginary_multiple(n->as.unary.operand, inner, sign))
+      return 0;
+    *sign = -*sign;
+    return 1;
+  }
+  if (n->type != AST_BINOP || n->as.binop.op != OP_MUL)
+    return 0;
+
+  unit_sign = node_imaginary_unit_sign(n->as.binop.left);
+  if (unit_sign != 0) {
+    *inner = n->as.binop.right;
+    *sign = unit_sign;
+    return 1;
+  }
+
+  unit_sign = node_imaginary_unit_sign(n->as.binop.right);
+  if (unit_sign != 0) {
+    *inner = n->as.binop.left;
+    *sign = unit_sign;
+    return 1;
+  }
+
+  return 0;
+}
+
+static AstNode *build_imaginary_scaled_call(const char *name,
+                                            const AstNode *arg, int sign) {
+  AstNode *call =
+      ast_func_call(name, strlen(name), (AstNode *[]){ast_clone(arg)}, 1);
+
+  if (sign > 0)
+    return ast_binop(OP_MUL, ast_complex(0.0, 1.0), call);
+  return ast_binop(OP_MUL, ast_complex(0.0, -1.0), call);
+}
+
 static AstNode *maybe_special_trig(TrigKind kind, Complex value) {
   if (!c_is_real(value))
     return NULL;
@@ -203,6 +266,29 @@ AstNode *trig_simplify_call(AstNode *node) {
     ast_free(arg);
     node->as.call.args[0] = operand;
     return sym_simplify(node);
+  }
+
+  if (kind == TRIG_KIND_SINH || kind == TRIG_KIND_COSH ||
+      kind == TRIG_KIND_TANH) {
+    const AstNode *inner = NULL;
+    int sign = 0;
+
+    if (extract_imaginary_multiple(arg, &inner, &sign)) {
+      AstNode *rewritten = NULL;
+
+      if (kind == TRIG_KIND_SINH) {
+        rewritten = build_imaginary_scaled_call("sin", inner, sign);
+      } else if (kind == TRIG_KIND_COSH) {
+        rewritten = ast_func_call("cos", 3, (AstNode *[]){ast_clone(inner)}, 1);
+      } else if (kind == TRIG_KIND_TANH) {
+        rewritten = build_imaginary_scaled_call("tan", inner, sign);
+      }
+
+      if (rewritten) {
+        ast_free(node);
+        return sym_simplify(rewritten);
+      }
+    }
   }
 
   if (arg->type != AST_NUMBER)

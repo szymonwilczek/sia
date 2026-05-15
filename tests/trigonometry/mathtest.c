@@ -1,5 +1,5 @@
-#include "../test_support.h"
 #include "../test_suites.h"
+#include "../test_support.h"
 
 static void test_simplify_trig_tan(void) {
   TEST("simplify: sin(x)/cos(x) -> tan(x)");
@@ -13,7 +13,6 @@ static void test_simplify_trig_tan(void) {
   PASS();
 }
 
-
 static void test_simplify_trig_pythagorean(void) {
   TEST("simplify: sin(x)^2 + cos(x)^2 -> 1");
   ParseResult r = parse("sin(x)^2 + cos(x)^2");
@@ -23,7 +22,6 @@ static void test_simplify_trig_pythagorean(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_simplify_inverse_trig(void) {
   TEST("simplify: inverse trig constants and identities");
@@ -137,7 +135,6 @@ static void test_simplify_inverse_trig(void) {
   PASS();
 }
 
-
 static void test_diff_sin(void) {
   TEST("diff: d/dx(sin(x)) = cos(x)");
   ParseResult r = parse("sin(x)");
@@ -150,7 +147,6 @@ static void test_diff_sin(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_diff_cos(void) {
   TEST("diff: d/dx(cos(x)) = -sin(x)");
@@ -165,7 +161,6 @@ static void test_diff_cos(void) {
   PASS();
 }
 
-
 static void test_diff_asin(void) {
   TEST("diff: d/dx(asin(x))");
   ParseResult r = parse("asin(x)");
@@ -179,7 +174,6 @@ static void test_diff_asin(void) {
   PASS();
 }
 
-
 static void test_diff_acos(void) {
   TEST("diff: d/dx(acos(x))");
   ParseResult r = parse("acos(x)");
@@ -192,7 +186,6 @@ static void test_diff_acos(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_diff_atan(void) {
   TEST("diff: d/dx(atan(x)) = 1/(1+x^2)");
@@ -277,6 +270,30 @@ static void test_simplify_hyperbolic_identities(void) {
   ASSERT_TRUE(is_num_node(s3, -1));
   ast_free(s3);
   parse_result_free(&r3);
+
+  ParseResult r4 = parse("sinh(i*x)");
+  AstNode *s4 = sym_simplify(ast_clone(r4.root));
+  char *str4 = ast_to_string(s4);
+  ASSERT_STR_EQ(str4, "i*sin(x)");
+  free(str4);
+  ast_free(s4);
+  parse_result_free(&r4);
+
+  ParseResult r5 = parse("cosh(i*x)");
+  AstNode *s5 = sym_simplify(ast_clone(r5.root));
+  char *str5 = ast_to_string(s5);
+  ASSERT_STR_EQ(str5, "cos(x)");
+  free(str5);
+  ast_free(s5);
+  parse_result_free(&r5);
+
+  ParseResult r6 = parse("tanh(i*x)");
+  AstNode *s6 = sym_simplify(ast_clone(r6.root));
+  char *str6 = ast_to_string(s6);
+  ASSERT_STR_EQ(str6, "i*tan(x)");
+  free(str6);
+  ast_free(s6);
+  parse_result_free(&r6);
 
   PASS();
 }
@@ -389,7 +406,6 @@ static void test_trig_complex_bridge_identities(void) {
   PASS();
 }
 
-
 static void test_trig_pythagorean_scattered(void) {
   TEST("trig: sin(x)^2 + y + cos(x)^2 -> 1 + y");
   ParseResult r = parse("sin(x)^2 + y + cos(x)^2");
@@ -404,7 +420,6 @@ static void test_trig_pythagorean_scattered(void) {
   PASS();
 }
 
-
 static void test_trig_cos2_minus_sin2(void) {
   TEST("trig: cos(x)^2 - sin(x)^2 -> cos(2*x)");
   ParseResult r = parse("cos(x)^2 - sin(x)^2");
@@ -417,7 +432,6 @@ static void test_trig_cos2_minus_sin2(void) {
   PASS();
 }
 
-
 static void test_trig_sin2_minus_cos2(void) {
   TEST("trig: sin(x)^2 - cos(x)^2 -> -cos(2*x)");
   ParseResult r = parse("sin(x)^2 - cos(x)^2");
@@ -429,7 +443,6 @@ static void test_trig_sin2_minus_cos2(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_trig_scaled_cos2_sin2(void) {
   TEST("trig: 3*cos(x)^2 - 3*sin(x)^2 -> 3*cos(2*x)");
@@ -445,7 +458,6 @@ static void test_trig_scaled_cos2_sin2(void) {
   PASS();
 }
 
-
 static void test_mul_neg_simplify(void) {
   TEST("simplify: A * (-B) -> -(A*B)");
   ParseResult r = parse("sin(x)*(-sin(x))");
@@ -457,7 +469,6 @@ static void test_mul_neg_simplify(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_diff_sincos_to_cos2x(void) {
   TEST("expand: d/dx(sin(x)*cos(x)) -> cos(2*x)");
@@ -475,7 +486,6 @@ static void test_diff_sincos_to_cos2x(void) {
   PASS();
 }
 
-
 static void test_trig_scattered_with_constant(void) {
   TEST("trig: sin(x)^2 + y + cos(x)^2 + 5 -> 6 + y");
   ParseResult r = parse("sin(x)^2 + y + cos(x)^2 + 5");
@@ -490,7 +500,6 @@ static void test_trig_scattered_with_constant(void) {
   PASS();
 }
 
-
 static void test_trig_pythagorean_complex_arg(void) {
   TEST("trig: sin(x^2+1)^2 + cos(x^2+1)^2 -> 1");
   ParseResult r = parse("sin(x^2+1)^2 + cos(x^2+1)^2");
@@ -504,7 +513,6 @@ static void test_trig_pythagorean_complex_arg(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 void tests_trigonometry_mathtest(void) {
   test_simplify_trig_tan();
