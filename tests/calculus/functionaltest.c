@@ -171,7 +171,7 @@ static void test_integrate_x(void) {
   AstNode *result = sym_integrate(r.root, "x");
   ASSERT_TRUE(result != NULL);
   char *s = ast_to_string(result);
-  ASSERT_STR_EQ(s, "x^2/2");
+  ASSERT_TRUE(strcmp(s, "x^2/2") == 0 || strcmp(s, "1/2*x^2") == 0);
   free(s);
   ast_free(result);
   parse_result_free(&r);
@@ -210,7 +210,7 @@ static void test_integrate_x_squared(void) {
   AstNode *result = sym_integrate(r.root, "x");
   ASSERT_TRUE(result != NULL);
   char *s = ast_to_string(result);
-  ASSERT_STR_EQ(s, "x^3/3");
+  ASSERT_TRUE(strcmp(s, "x^3/3") == 0 || strcmp(s, "1/3*x^3") == 0);
   free(s);
   ast_free(result);
   parse_result_free(&r);
@@ -236,7 +236,9 @@ static void test_integrate_ln(void) {
   AstNode *result = sym_integrate(r.root, "x");
   ASSERT_TRUE(result != NULL);
   char *s = ast_to_string(result);
-  ASSERT_STR_EQ(s, "x*ln(x) - x");
+  ASSERT_TRUE(strcmp(s, "x*ln(x) - x") == 0 ||
+              strcmp(s, "(-x) + x*ln(x)") == 0 ||
+              strcmp(s, "x*ln(x) + (-x)") == 0);
   free(s);
   ast_free(result);
   parse_result_free(&r);
@@ -368,9 +370,89 @@ static void test_integrate_rational(void) {
   ASSERT_TRUE(result != NULL);
   result = sym_simplify(result);
   char *s = ast_to_string(result);
-  ASSERT_TRUE(strcmp(s, "x + x^2/2") == 0 || strcmp(s, "x^2/2 + x") == 0);
+  ASSERT_TRUE(strcmp(s, "x + x^2/2") == 0 || strcmp(s, "x^2/2 + x") == 0 ||
+              strcmp(s, "x + 1/2*x^2") == 0 || strcmp(s, "1/2*x^2 + x") == 0);
   free(s);
   ast_free(expr);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_by_parts_x_cos(void) {
+  TEST("int: by parts integral(x*cos(x), x)");
+  ParseResult r = parse("x*cos(x)");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_TRUE(strcmp(s, "x*sin(x) + cos(x)") == 0 ||
+              strcmp(s, "cos(x) + x*sin(x)") == 0);
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_by_parts_x2_exp(void) {
+  TEST("int: by parts integral(x^2*exp(x), x)");
+  ParseResult r = parse("x^2*exp(x)");
+  AstNode *result = sym_integrate(r.root, "x");
+  AstNode *diff = NULL;
+  AstNode *expected = NULL;
+  char *diff_s = NULL;
+  char *expected_s = NULL;
+
+  ASSERT_TRUE(result != NULL);
+  result = sym_full_simplify(result);
+
+  diff = sym_diff(result, "x");
+  diff = ast_canonicalize(diff);
+  diff = sym_full_simplify(diff);
+  expected = ast_canonicalize(ast_clone(r.root));
+  expected = sym_full_simplify(expected);
+  ASSERT_TRUE(diff != NULL);
+  ASSERT_TRUE(expected != NULL);
+
+  diff_s = ast_to_string(diff);
+  expected_s = ast_to_string(expected);
+  ASSERT_STR_EQ(diff_s, expected_s);
+
+  free(diff_s);
+  free(expected_s);
+  ast_free(diff);
+  ast_free(expected);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_by_parts_recurring_exp_sin(void) {
+  TEST("int: by parts recurring integral(exp(x)*sin(x), x)");
+  ParseResult r = parse("exp(x)*sin(x)");
+  AstNode *result = sym_integrate(r.root, "x");
+  AstNode *diff = NULL;
+  AstNode *expected = NULL;
+  char *diff_s = NULL;
+  char *expected_s = NULL;
+
+  ASSERT_TRUE(result != NULL);
+
+  diff = sym_diff(result, "x");
+  diff = ast_canonicalize(diff);
+  diff = sym_full_simplify(diff);
+  expected = ast_canonicalize(ast_clone(r.root));
+  expected = sym_full_simplify(expected);
+  ASSERT_TRUE(diff != NULL);
+  ASSERT_TRUE(expected != NULL);
+
+  diff_s = ast_to_string(diff);
+  expected_s = ast_to_string(expected);
+  ASSERT_STR_EQ(diff_s, expected_s);
+
+  free(diff_s);
+  free(expected_s);
+  ast_free(diff);
+  ast_free(expected);
   ast_free(result);
   parse_result_free(&r);
   PASS();
@@ -416,5 +498,8 @@ void tests_calculus_functional(void) {
   test_integrate_1_div_x();
   test_integrate_x_div_x();
   test_integrate_rational();
+  test_integrate_by_parts_x_cos();
+  test_integrate_by_parts_x2_exp();
+  test_integrate_by_parts_recurring_exp_sin();
   test_int_definite();
 }

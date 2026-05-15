@@ -1879,6 +1879,277 @@ static AstNode *integrate_trig(const AstNode *expr, const char *var) {
 
 AstNode *sym_integrate(const AstNode *expr, const char *var);
 
+#define SYM_INTEGRATE_MAX_DEPTH 8
+
+typedef struct {
+  AstNode *term;
+  AstNode *root_coeff;
+} IntegralAffineResult;
+
+static IntegralAffineResult integral_affine_fail(void) {
+  IntegralAffineResult result = {0};
+  return result;
+}
+
+static IntegralAffineResult integral_affine_term(AstNode *term) {
+  IntegralAffineResult result = {term, ast_number(0)};
+  return result;
+}
+
+static IntegralAffineResult integral_affine_root_coeff(AstNode *coeff) {
+  IntegralAffineResult result = {ast_number(0), coeff};
+  return result;
+}
+
+static int integral_affine_ok(const IntegralAffineResult *result) {
+  return result && result->term && result->root_coeff;
+}
+
+static void integral_affine_free(IntegralAffineResult *result) {
+  if (!result)
+    return;
+  ast_free(result->term);
+  ast_free(result->root_coeff);
+  result->term = NULL;
+  result->root_coeff = NULL;
+}
+
+static void flatten_product_terms(const AstNode *node, NodeList *terms) {
+  if (!node)
+    return;
+  if (node->type == AST_BINOP && node->as.binop.op == OP_MUL) {
+    flatten_product_terms(node->as.binop.left, terms);
+    flatten_product_terms(node->as.binop.right, terms);
+    return;
+  }
+  node_list_push(terms, ast_clone(node));
+}
+
+static AstNode *build_product_excluding(const NodeList *terms, size_t skip) {
+  AstNode *result = NULL;
+
+  for (size_t i = 0; i < terms->count; i++) {
+    if (i == skip)
+      continue;
+    if (!result) {
+      result = ast_clone(terms->items[i]);
+    } else {
+      result = ast_binop(OP_MUL, result, ast_clone(terms->items[i]));
+    }
+  }
+
+  if (!result)
+    return ast_number(1);
+  return result;
+}
+
+static int liate_priority(const AstNode *expr, const char *var) {
+  if (!expr || !sym_contains_var(expr, var))
+    return -1;
+
+  if (is_call1(expr, "ln"))
+    return 50;
+  if (is_call1(expr, "asin") || is_call1(expr, "acos") ||
+      is_call1(expr, "atan"))
+    return 40;
+  if (is_var(expr, var))
+    return 30;
+  if (expr->type == AST_BINOP && expr->as.binop.op == OP_POW &&
+      is_var(expr->as.binop.left, var) &&
+      !sym_contains_var(expr->as.binop.right, var))
+    return 30;
+  if (is_call1(expr, "sin") || is_call1(expr, "cos") || is_call1(expr, "tan"))
+    return 20;
+  if (is_call1(expr, "exp") || is_call1(expr, "sinh") ||
+      is_call1(expr, "cosh") || is_call1(expr, "tanh"))
+    return 10;
+  return 0;
+}
+
+static int extract_root_multiple(const AstNode *expr, const AstNode *root,
+                                 AstNode **coeff_out) {
+  Complex expr_coeff = c_real(1.0);
+  Complex root_coeff = c_real(1.0);
+  AstNode *expr_base = NULL;
+  AstNode *root_base = NULL;
+  int ok = 0;
+
+  *coeff_out = NULL;
+
+  if (!extract_coeff_and_base(expr, &expr_coeff, &expr_base) ||
+      !extract_coeff_and_base(root, &root_coeff, &root_base))
+    goto cleanup;
+
+  if (c_is_zero(root_coeff))
+    goto cleanup;
+
+  if ((!expr_base && !root_base) ||
+      (expr_base && root_base && ast_equal(expr_base, root_base))) {
+    *coeff_out = ast_number_complex(c_div(expr_coeff, root_coeff));
+    ok = 1;
+  }
+
+cleanup:
+  ast_free(expr_base);
+  ast_free(root_base);
+  return ok;
+}
+
+static AstNode *scale_affine_term(const AstNode *factor, AstNode *term) {
+  AstNode *scaled = NULL;
+
+  if (!term)
+    return NULL;
+  if (is_zero_node(term)) {
+    ast_free(term);
+    return ast_number(0);
+  }
+
+  scaled = sym_full_simplify(ast_binop(OP_MUL, ast_clone(factor), term));
+  return scaled;
+}
+
+static AstNode *negate_additive_expr(const AstNode *expr) {
+  if (!expr)
+    return NULL;
+
+  if (expr->type == AST_UNARY_NEG)
+    return ast_clone(expr->as.unary.operand);
+
+  if (expr->type == AST_BINOP && expr->as.binop.op == OP_ADD) {
+    AstNode *left = negate_additive_expr(expr->as.binop.left);
+    AstNode *right = negate_additive_expr(expr->as.binop.right);
+    return sym_full_simplify(ast_binop(OP_ADD, left, right));
+  }
+
+  if (expr->type == AST_BINOP && expr->as.binop.op == OP_SUB) {
+    AstNode *left = negate_additive_expr(expr->as.binop.left);
+    AstNode *right = ast_clone(expr->as.binop.right);
+    return sym_full_simplify(ast_binop(OP_ADD, left, right));
+  }
+
+  return sym_full_simplify(ast_unary_neg(ast_clone(expr)));
+}
+
+static IntegralAffineResult sym_integrate_affine(const AstNode *expr,
+                                                 const char *var,
+                                                 const AstNode *root, int depth,
+                                                 int detect_root_loop);
+
+static IntegralAffineResult integrate_by_parts(const AstNode *expr,
+                                               const char *var,
+                                               const AstNode *root, int depth) {
+  IntegralAffineResult result = integral_affine_fail();
+  NodeList factors = {0};
+  unsigned char *used = NULL;
+  int best_priority = -1;
+  size_t best_index = 0;
+  int found = 0;
+
+  if (depth >= SYM_INTEGRATE_MAX_DEPTH)
+    return result;
+
+  if (expr->type == AST_BINOP && expr->as.binop.op == OP_MUL) {
+    flatten_product_terms(expr, &factors);
+  } else if (liate_priority(expr, var) > 0) {
+    if (!node_list_push(&factors, ast_clone(expr)))
+      return result;
+  } else {
+    return result;
+  }
+
+  used = calloc(factors.count ? factors.count : 1, sizeof(unsigned char));
+  if (!used) {
+    node_list_free(&factors);
+    return result;
+  }
+
+  while (1) {
+    IntegralAffineResult right = integral_affine_fail();
+    IntegralAffineResult v = integral_affine_fail();
+    AstNode *u = NULL;
+    AstNode *dv = NULL;
+    AstNode *du = NULL;
+    AstNode *uv = NULL;
+    AstNode *right_integrand = NULL;
+    AstNode *neg_coeff = NULL;
+
+    best_priority = -1;
+    found = 0;
+
+    for (size_t i = 0; i < factors.count; i++) {
+      int priority = liate_priority(factors.items[i], var);
+      if (used[i])
+        continue;
+      if (priority > best_priority) {
+        best_priority = priority;
+        best_index = i;
+        found = 1;
+      }
+    }
+
+    if (!found || best_priority < 0)
+      break;
+
+    used[best_index] = 1;
+    u = ast_clone(factors.items[best_index]);
+    dv = build_product_excluding(&factors, best_index);
+    dv = sym_full_simplify(dv);
+    if (!u || !dv) {
+      ast_free(u);
+      ast_free(dv);
+      continue;
+    }
+
+    v = sym_integrate_affine(dv, var, root, depth + 1, 0);
+    if (!integral_affine_ok(&v) || !is_zero_node(v.root_coeff)) {
+      integral_affine_free(&v);
+      ast_free(u);
+      ast_free(dv);
+      continue;
+    }
+
+    du = sym_diff(u, var);
+    if (!du) {
+      integral_affine_free(&v);
+      ast_free(u);
+      ast_free(dv);
+      continue;
+    }
+    du = sym_full_simplify(du);
+    uv = sym_full_simplify(ast_binop(OP_MUL, ast_clone(u), ast_clone(v.term)));
+    right_integrand =
+        sym_full_simplify(ast_binop(OP_MUL, ast_clone(v.term), du));
+    right = sym_integrate_affine(right_integrand, var, root, depth + 1, 1);
+    ast_free(right_integrand);
+    ast_free(dv);
+    ast_free(u);
+    if (!integral_affine_ok(&right)) {
+      integral_affine_free(&right);
+      integral_affine_free(&v);
+      ast_free(uv);
+      continue;
+    }
+
+    neg_coeff = sym_full_simplify(ast_unary_neg(right.root_coeff));
+    right.root_coeff = NULL;
+    result.term = sym_full_simplify(
+        ast_binop(OP_ADD, uv, negate_additive_expr(right.term)));
+    right.term = NULL;
+    result.root_coeff = neg_coeff;
+
+    integral_affine_free(&right);
+    integral_affine_free(&v);
+    node_list_free(&factors);
+    free(used);
+    return result;
+  }
+
+  node_list_free(&factors);
+  free(used);
+  return integral_affine_fail();
+}
+
 static AstNode *integrate_monomial(const AstNode *expr, const char *var) {
   /* constant -> c*x */
   if (!sym_contains_var(expr, var)) {
@@ -1912,52 +2183,11 @@ static AstNode *integrate_monomial(const AstNode *expr, const char *var) {
   return NULL;
 }
 
-static AstNode *sym_integrate_raw(const AstNode *expr, const char *var) {
-  if (!expr)
-    return NULL;
-
-  /* linearity: int(a +/- b) = int(a) +/- int(b) */
-  if (expr->type == AST_BINOP &&
-      (expr->as.binop.op == OP_ADD || expr->as.binop.op == OP_SUB)) {
-    AstNode *li = sym_integrate(expr->as.binop.left, var);
-    AstNode *ri = sym_integrate(expr->as.binop.right, var);
-    if (li && ri)
-      return sym_simplify(ast_binop(expr->as.binop.op, li, ri));
-    ast_free(li);
-    ast_free(ri);
-    return NULL;
-  }
-
-  /* negation */
-  if (expr->type == AST_UNARY_NEG) {
-    AstNode *inner = sym_integrate(expr->as.unary.operand, var);
-    if (inner)
-      return sym_simplify(ast_unary_neg(inner));
-    return NULL;
-  }
-
-  /* c*f(x) -> c * int(f(x)) after global product normalization */
-  if (expr->type == AST_BINOP && expr->as.binop.op == OP_MUL) {
-    if (!sym_contains_var(expr->as.binop.left, var)) {
-      AstNode *inner = sym_integrate(expr->as.binop.right, var);
-      if (inner)
-        return sym_full_simplify(
-            ast_binop(OP_MUL, ast_clone(expr->as.binop.left), inner));
-    }
-    if (!sym_contains_var(expr->as.binop.right, var)) {
-      AstNode *inner = sym_integrate(expr->as.binop.left, var);
-      if (inner)
-        return sym_full_simplify(
-            ast_binop(OP_MUL, ast_clone(expr->as.binop.right), inner));
-    }
-  }
-
-  /* try trig/exp integrals first */
+static AstNode *sym_integrate_direct(const AstNode *expr, const char *var) {
   AstNode *result = integrate_trig(expr, var);
   if (result)
     return sym_simplify(result);
 
-  /* then monomial rule */
   result = integrate_monomial(expr, var);
   if (result)
     return sym_simplify(result);
@@ -1965,9 +2195,109 @@ static AstNode *sym_integrate_raw(const AstNode *expr, const char *var) {
   return NULL;
 }
 
+static IntegralAffineResult sym_integrate_affine(const AstNode *expr,
+                                                 const char *var,
+                                                 const AstNode *root, int depth,
+                                                 int detect_root_loop) {
+  IntegralAffineResult result = integral_affine_fail();
+  AstNode *direct = NULL;
+  AstNode *root_multiple = NULL;
+
+  if (!expr)
+    return result;
+  if (depth > SYM_INTEGRATE_MAX_DEPTH)
+    return result;
+
+  if (detect_root_loop && depth > 0 &&
+      extract_root_multiple(expr, root, &root_multiple))
+    return integral_affine_root_coeff(root_multiple);
+
+  /* linearity: int(a +/- b) = int(a) +/- int(b) */
+  if (expr->type == AST_BINOP &&
+      (expr->as.binop.op == OP_ADD || expr->as.binop.op == OP_SUB)) {
+    IntegralAffineResult left = sym_integrate_affine(
+        expr->as.binop.left, var, root, depth + 1, detect_root_loop);
+    IntegralAffineResult right = sym_integrate_affine(
+        expr->as.binop.right, var, root, depth + 1, detect_root_loop);
+    if (!integral_affine_ok(&left) || !integral_affine_ok(&right)) {
+      integral_affine_free(&left);
+      integral_affine_free(&right);
+      return result;
+    }
+
+    result.term =
+        sym_full_simplify(ast_binop(expr->as.binop.op, left.term, right.term));
+    left.term = NULL;
+    right.term = NULL;
+    result.root_coeff = sym_full_simplify(
+        ast_binop(expr->as.binop.op, left.root_coeff, right.root_coeff));
+    left.root_coeff = NULL;
+    right.root_coeff = NULL;
+
+    integral_affine_free(&left);
+    integral_affine_free(&right);
+    return result;
+  }
+
+  /* negation */
+  if (expr->type == AST_UNARY_NEG) {
+    IntegralAffineResult inner = sym_integrate_affine(
+        expr->as.unary.operand, var, root, depth + 1, detect_root_loop);
+    if (!integral_affine_ok(&inner))
+      return result;
+
+    result.term = sym_full_simplify(ast_unary_neg(inner.term));
+    inner.term = NULL;
+    result.root_coeff = sym_full_simplify(ast_unary_neg(inner.root_coeff));
+    inner.root_coeff = NULL;
+    integral_affine_free(&inner);
+    return result;
+  }
+
+  /* c*f(x) -> c * int(f(x)) after global product normalization */
+  if (expr->type == AST_BINOP && expr->as.binop.op == OP_MUL) {
+    if (!sym_contains_var(expr->as.binop.left, var)) {
+      IntegralAffineResult inner = sym_integrate_affine(
+          expr->as.binop.right, var, root, depth + 1, detect_root_loop);
+      if (integral_affine_ok(&inner)) {
+        result.term = scale_affine_term(expr->as.binop.left, inner.term);
+        inner.term = NULL;
+        result.root_coeff =
+            scale_affine_term(expr->as.binop.left, inner.root_coeff);
+        inner.root_coeff = NULL;
+        integral_affine_free(&inner);
+        return result;
+      }
+      integral_affine_free(&inner);
+    }
+    if (!sym_contains_var(expr->as.binop.right, var)) {
+      IntegralAffineResult inner = sym_integrate_affine(
+          expr->as.binop.left, var, root, depth + 1, detect_root_loop);
+      if (integral_affine_ok(&inner)) {
+        result.term = scale_affine_term(expr->as.binop.right, inner.term);
+        inner.term = NULL;
+        result.root_coeff =
+            scale_affine_term(expr->as.binop.right, inner.root_coeff);
+        inner.root_coeff = NULL;
+        integral_affine_free(&inner);
+        return result;
+      }
+      integral_affine_free(&inner);
+    }
+  }
+
+  direct = sym_integrate_direct(expr, var);
+  if (direct)
+    return integral_affine_term(direct);
+
+  return integrate_by_parts(expr, var, root, depth);
+}
+
 AstNode *sym_integrate(const AstNode *expr, const char *var) {
+  IntegralAffineResult affine = integral_affine_fail();
   AstNode *normalized = NULL;
   AstNode *result = NULL;
+  AstNode *denominator = NULL;
 
   if (!expr)
     return NULL;
@@ -1976,9 +2306,37 @@ AstNode *sym_integrate(const AstNode *expr, const char *var) {
   if (!normalized)
     return NULL;
 
-  result = sym_integrate_raw(normalized, var);
+  affine = sym_integrate_affine(normalized, var, normalized, 0, 0);
+  if (!integral_affine_ok(&affine)) {
+    ast_free(normalized);
+    return NULL;
+  }
+
+  if (is_zero_node(affine.root_coeff)) {
+    result = affine.term;
+    affine.term = NULL;
+  } else {
+    denominator =
+        sym_full_simplify(ast_binop(OP_SUB, ast_number(1), affine.root_coeff));
+    affine.root_coeff = NULL;
+    if (!denominator || is_zero_node(denominator)) {
+      ast_free(denominator);
+      integral_affine_free(&affine);
+      ast_free(normalized);
+      return NULL;
+    }
+    result = sym_full_simplify(ast_binop(OP_DIV, affine.term, denominator));
+    affine.term = NULL;
+  }
+
+  integral_affine_free(&affine);
   ast_free(normalized);
-  return result;
+  if (!result)
+    return NULL;
+
+  result = ast_canonicalize(result);
+  result = sym_collect_terms(result);
+  return sym_full_simplify(result);
 }
 
 static AstNode *sym_det_recursive(AstNode **elems, size_t n, size_t stride) {
