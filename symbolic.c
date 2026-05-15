@@ -3,7 +3,9 @@
 #include "canonical.h"
 #include "factorial.h"
 #include "logarithm.h"
+#include "matrix.h"
 #include "number_theory.h"
+#include "solve.h"
 #include "trigonometry/trigonometry.h"
 #include <math.h>
 #include <stdlib.h>
@@ -1943,6 +1945,597 @@ static AstNode *build_product_excluding(const NodeList *terms, size_t skip) {
   return result;
 }
 
+#define PFD_MAX_DEGREE 8
+#define PFD_MAX_FACTORS 8
+
+typedef struct {
+  Complex coeffs[PFD_MAX_DEGREE + 1];
+  int deg;
+} Poly1D;
+
+typedef struct {
+  int degree;
+  Poly1D poly;
+} PfdFactor;
+
+typedef struct {
+  PfdFactor items[PFD_MAX_FACTORS];
+  size_t count;
+} PfdFactorList;
+
+static int pfd_integer_node(const AstNode *node, int *out) {
+  double rounded = 0.0;
+
+  if (!node || node->type != AST_NUMBER || !c_is_real(node->as.number))
+    return 0;
+
+  rounded = round(node->as.number.re);
+  if (fabs(node->as.number.re - rounded) > 1e-9)
+    return 0;
+
+  if (out)
+    *out = (int)rounded;
+  return 1;
+}
+
+static void poly1d_zero(Poly1D *poly) {
+  memset(poly, 0, sizeof(*poly));
+  poly->deg = 0;
+}
+
+static void poly1d_normalize(Poly1D *poly) {
+  while (poly->deg > 0 && c_is_zero(poly->coeffs[poly->deg]))
+    poly->deg--;
+}
+
+static int poly1d_is_zero(const Poly1D *poly) {
+  for (int i = 0; i <= poly->deg; i++)
+    if (!c_is_zero(poly->coeffs[i]))
+      return 0;
+  return 1;
+}
+
+static int poly1d_extract(const AstNode *expr, const char *var, int max_degree,
+                          Poly1D *poly) {
+  const AstNode *stack[256];
+  AstNode *expanded = NULL;
+  int sp = 0;
+
+  if (max_degree > PFD_MAX_DEGREE)
+    return 0;
+
+  poly1d_zero(poly);
+  expanded = sym_expand(ast_clone(expr));
+  expanded = ast_canonicalize(expanded);
+  expanded = sym_collect_terms(expanded);
+  expanded = sym_simplify(expanded);
+
+  stack[sp++] = expanded;
+  while (sp > 0) {
+    const AstNode *node = stack[--sp];
+    const AstNode *term = node;
+    Complex coeff = c_real(1.0);
+    int degree = 0;
+
+    if (!node)
+      continue;
+
+    if (node->type == AST_BINOP && node->as.binop.op == OP_ADD) {
+      if (sp + 2 > 256) {
+        ast_free(expanded);
+        return 0;
+      }
+      stack[sp++] = node->as.binop.left;
+      stack[sp++] = node->as.binop.right;
+      continue;
+    }
+
+    if (node->type == AST_UNARY_NEG) {
+      coeff = c_real(-1.0);
+      term = node->as.unary.operand;
+    }
+
+    if (term->type == AST_NUMBER) {
+      poly->coeffs[0] = c_add(poly->coeffs[0], c_mul(coeff, term->as.number));
+      continue;
+    }
+
+    if (term->type == AST_VARIABLE && strcmp(term->as.variable, var) == 0) {
+      if (max_degree < 1) {
+        ast_free(expanded);
+        return 0;
+      }
+      poly->coeffs[1] = c_add(poly->coeffs[1], coeff);
+      if (poly->deg < 1)
+        poly->deg = 1;
+      continue;
+    }
+
+    if (term->type == AST_BINOP && term->as.binop.op == OP_MUL) {
+      const AstNode *left = term->as.binop.left;
+      const AstNode *right = term->as.binop.right;
+
+      if (left->type == AST_NUMBER) {
+        coeff = c_mul(coeff, left->as.number);
+        term = right;
+      } else if (right->type == AST_NUMBER) {
+        coeff = c_mul(coeff, right->as.number);
+        term = left;
+      }
+    }
+
+    if (term->type == AST_VARIABLE && strcmp(term->as.variable, var) == 0) {
+      if (max_degree < 1) {
+        ast_free(expanded);
+        return 0;
+      }
+      poly->coeffs[1] = c_add(poly->coeffs[1], coeff);
+      if (poly->deg < 1)
+        poly->deg = 1;
+      continue;
+    }
+
+    if (term->type == AST_BINOP && term->as.binop.op == OP_POW &&
+        is_var(term->as.binop.left, var) &&
+        pfd_integer_node(term->as.binop.right, &degree)) {
+      if (degree < 0 || degree > max_degree) {
+        ast_free(expanded);
+        return 0;
+      }
+      poly->coeffs[degree] = c_add(poly->coeffs[degree], coeff);
+      if (poly->deg < degree)
+        poly->deg = degree;
+      continue;
+    }
+
+    if (sym_contains_var(term, var)) {
+      ast_free(expanded);
+      return 0;
+    }
+
+    poly->coeffs[0] = c_add(poly->coeffs[0], coeff);
+  }
+
+  ast_free(expanded);
+  poly1d_normalize(poly);
+  return 1;
+}
+
+static AstNode *poly1d_to_ast(const Poly1D *poly, const char *var) {
+  AstNode *result = NULL;
+
+  for (int i = 0; i <= poly->deg; i++) {
+    AstNode *term = NULL;
+
+    if (c_is_zero(poly->coeffs[i]))
+      continue;
+
+    if (i == 0) {
+      term = ast_number_complex(poly->coeffs[0]);
+    } else {
+      AstNode *power = ast_variable(var, strlen(var));
+      if (i != 1)
+        power = ast_binop(OP_POW, power, ast_number(i));
+
+      if (c_is_one(poly->coeffs[i])) {
+        term = power;
+      } else {
+        term = ast_binop(OP_MUL, ast_number_complex(poly->coeffs[i]), power);
+      }
+    }
+
+    if (!result)
+      result = term;
+    else
+      result = ast_binop(OP_ADD, result, term);
+  }
+
+  if (!result)
+    return ast_number(0);
+  return sym_full_simplify(result);
+}
+
+static int poly1d_shift_mul(const Poly1D *poly, int shift, Poly1D *out) {
+  poly1d_zero(out);
+  if (poly->deg + shift > PFD_MAX_DEGREE)
+    return 0;
+
+  for (int i = 0; i <= poly->deg; i++)
+    out->coeffs[i + shift] = poly->coeffs[i];
+  out->deg = poly->deg + shift;
+  poly1d_normalize(out);
+  return 1;
+}
+
+static int poly1d_divmod(const Poly1D *numer, const Poly1D *denom, Poly1D *quot,
+                         Poly1D *rem) {
+  Poly1D work;
+
+  if (poly1d_is_zero(denom))
+    return 0;
+
+  poly1d_zero(quot);
+  work = *numer;
+  poly1d_normalize(&work);
+
+  while (!poly1d_is_zero(&work) && work.deg >= denom->deg) {
+    int shift = work.deg - denom->deg;
+    Complex factor = c_div(work.coeffs[work.deg], denom->coeffs[denom->deg]);
+
+    if (shift > PFD_MAX_DEGREE)
+      return 0;
+
+    quot->coeffs[shift] = c_add(quot->coeffs[shift], factor);
+    if (quot->deg < shift)
+      quot->deg = shift;
+
+    for (int i = 0; i <= denom->deg; i++) {
+      int target = i + shift;
+      work.coeffs[target] =
+          c_sub(work.coeffs[target], c_mul(factor, denom->coeffs[i]));
+    }
+    poly1d_normalize(&work);
+  }
+
+  *rem = work;
+  poly1d_normalize(quot);
+  poly1d_normalize(rem);
+  return 1;
+}
+
+static int pfd_factor_list_push(PfdFactorList *list, const Poly1D *poly,
+                                int degree) {
+  if (list->count >= PFD_MAX_FACTORS)
+    return 0;
+  list->items[list->count].degree = degree;
+  list->items[list->count].poly = *poly;
+  list->count++;
+  return 1;
+}
+
+static int pfd_collect_factor_ast(const AstNode *node, const char *var,
+                                  PfdFactorList *list) {
+  Poly1D poly;
+
+  if (!node)
+    return 0;
+
+  if (node->type == AST_BINOP && node->as.binop.op == OP_MUL) {
+    return pfd_collect_factor_ast(node->as.binop.left, var, list) &&
+           pfd_collect_factor_ast(node->as.binop.right, var, list);
+  }
+
+  if (!poly1d_extract(node, var, PFD_MAX_DEGREE, &poly))
+    return 0;
+  if (poly.deg < 1 || poly.deg > 2)
+    return 0;
+  return pfd_factor_list_push(list, &poly, poly.deg);
+}
+
+static int pfd_factor_denominator(const Poly1D *denom, const AstNode *den_ast,
+                                  const char *var, PfdFactorList *list) {
+  if (denom->deg == 1)
+    return pfd_factor_list_push(list, denom, 1);
+
+  if (denom->deg == 2) {
+    SymTab empty = {0};
+    AstNode *poly_ast = poly1d_to_ast(denom, var);
+    SolveResult roots = sym_solve(poly_ast, var, c_real(0.0), &empty);
+    ast_free(poly_ast);
+
+    if (roots.ok && roots.count == 2 && c_is_real(roots.roots[0]) &&
+        c_is_real(roots.roots[1]) && fabs(roots.roots[0].im) < 1e-9 &&
+        fabs(roots.roots[1].im) < 1e-9 &&
+        c_abs(c_sub(roots.roots[0], roots.roots[1])) > 1e-9) {
+      Poly1D linear = {0};
+
+      linear.coeffs[0] = c_neg(roots.roots[0]);
+      linear.coeffs[1] = c_real(1.0);
+      linear.deg = 1;
+      if (!pfd_factor_list_push(list, &linear, 1)) {
+        solve_result_free(&roots);
+        return 0;
+      }
+
+      poly1d_zero(&linear);
+      linear.coeffs[0] = c_neg(roots.roots[1]);
+      linear.coeffs[1] = c_real(1.0);
+      linear.deg = 1;
+      solve_result_free(&roots);
+      return pfd_factor_list_push(list, &linear, 1);
+    }
+
+    solve_result_free(&roots);
+    return pfd_factor_list_push(list, denom, 2);
+  }
+
+  if (!pfd_collect_factor_ast(den_ast, var, list))
+    return 0;
+
+  {
+    int total_degree = 0;
+    for (size_t i = 0; i < list->count; i++)
+      total_degree += list->items[i].degree;
+    if (total_degree != denom->deg)
+      return 0;
+  }
+
+  return 1;
+}
+
+static int pfd_extract_rational_expr(const AstNode *expr, const char *var,
+                                     AstNode **numer_out, AstNode **denom_out) {
+  NodeList factors = {0};
+  AstNode *numer = ast_number(1);
+  AstNode *denom = ast_number(1);
+
+  *numer_out = NULL;
+  *denom_out = NULL;
+
+  if (expr->type == AST_BINOP && expr->as.binop.op == OP_DIV) {
+    *numer_out = sym_full_simplify(ast_clone(expr->as.binop.left));
+    *denom_out = sym_full_simplify(ast_clone(expr->as.binop.right));
+    return *numer_out && *denom_out;
+  }
+
+  flatten_product_terms(expr, &factors);
+  for (size_t i = 0; i < factors.count; i++) {
+    AstNode *factor = factors.items[i];
+    Poly1D poly;
+    int exp = 0;
+
+    if (factor->type == AST_BINOP && factor->as.binop.op == OP_POW &&
+        pfd_integer_node(factor->as.binop.right, &exp) && exp < 0 &&
+        poly1d_extract(factor->as.binop.left, var, PFD_MAX_DEGREE, &poly) &&
+        poly.deg >= 1) {
+      for (int k = 0; k < -exp; k++)
+        denom = sym_full_simplify(
+            ast_binop(OP_MUL, denom, ast_clone(factor->as.binop.left)));
+    } else {
+      numer = sym_full_simplify(ast_binop(OP_MUL, numer, ast_clone(factor)));
+    }
+  }
+
+  node_list_free(&factors);
+  if (!sym_contains_var(denom, var)) {
+    ast_free(numer);
+    ast_free(denom);
+    return 0;
+  }
+
+  *numer_out = numer;
+  *denom_out = denom;
+  return 1;
+}
+
+static int pfd_solve_coefficients(const Poly1D *numer, const Poly1D *denom,
+                                  const PfdFactorList *factors,
+                                  Complex *solution, size_t unknown_count) {
+  Matrix *system = NULL;
+  Matrix *inverse = NULL;
+  Complex rhs[PFD_MAX_DEGREE + 1] = {0};
+  size_t col = 0;
+
+  if (unknown_count == 0 || unknown_count > (size_t)denom->deg)
+    return 0;
+
+  system = matrix_create(unknown_count, unknown_count);
+  for (size_t row = 0; row < unknown_count; row++)
+    rhs[row] = (row <= (size_t)numer->deg) ? numer->coeffs[row] : c_real(0.0);
+
+  for (size_t i = 0; i < factors->count; i++) {
+    Poly1D quotient = {0};
+    Poly1D remainder = {0};
+
+    if (!poly1d_divmod(denom, &factors->items[i].poly, &quotient, &remainder) ||
+        !poly1d_is_zero(&remainder)) {
+      matrix_free(system);
+      return 0;
+    }
+
+    if (factors->items[i].degree == 1) {
+      for (size_t row = 0; row < unknown_count; row++) {
+        Complex value =
+            (row <= (size_t)quotient.deg) ? quotient.coeffs[row] : c_real(0.0);
+        matrix_set(system, row, col, value);
+      }
+      col++;
+    } else {
+      Poly1D shifted = {0};
+      if (!poly1d_shift_mul(&quotient, 1, &shifted)) {
+        matrix_free(system);
+        return 0;
+      }
+      for (size_t row = 0; row < unknown_count; row++) {
+        Complex av =
+            (row <= (size_t)shifted.deg) ? shifted.coeffs[row] : c_real(0.0);
+        Complex bv =
+            (row <= (size_t)quotient.deg) ? quotient.coeffs[row] : c_real(0.0);
+        matrix_set(system, row, col, av);
+        matrix_set(system, row, col + 1, bv);
+      }
+      col += 2;
+    }
+  }
+
+  inverse = matrix_inverse(system);
+  matrix_free(system);
+  if (!inverse)
+    return 0;
+
+  for (size_t row = 0; row < unknown_count; row++) {
+    Complex sum = c_real(0.0);
+    for (size_t k = 0; k < unknown_count; k++)
+      sum = c_add(sum, c_mul(matrix_get(inverse, row, k), rhs[k]));
+    solution[row] = sum;
+  }
+
+  matrix_free(inverse);
+  return 1;
+}
+
+static AstNode *pfd_integrate_linear_term(Complex coeff, const Poly1D *factor,
+                                          const char *var) {
+  AstNode *factor_ast = poly1d_to_ast(factor, var);
+  AstNode *abs_ast = ast_func_call("abs", 3, (AstNode *[]){factor_ast}, 1);
+  AstNode *log_ast = ast_func_call("ln", 2, (AstNode *[]){abs_ast}, 1);
+  Complex scale = c_div(coeff, factor->coeffs[1]);
+
+  return sym_full_simplify(
+      ast_binop(OP_MUL, ast_number_complex(scale), log_ast));
+}
+
+static AstNode *pfd_integrate_quadratic_term(Complex ax_coeff, Complex b_coeff,
+                                             const Poly1D *factor,
+                                             const char *var) {
+  Complex a = factor->coeffs[2];
+  Complex b = factor->coeffs[1];
+  Complex c0 = factor->coeffs[0];
+  Complex alpha = c_div(ax_coeff, c_mul(c_real(2.0), a));
+  Complex beta = c_sub(b_coeff, c_mul(alpha, b));
+  Complex delta = c_sub(c_mul(c_real(4.0), c_mul(a, c0)), c_mul(b, b));
+  AstNode *result = NULL;
+
+  if (!c_is_zero(alpha)) {
+    AstNode *log_ast =
+        ast_func_call("ln", 2, (AstNode *[]){poly1d_to_ast(factor, var)}, 1);
+    result = sym_full_simplify(
+        ast_binop(OP_MUL, ast_number_complex(alpha), log_ast));
+  }
+
+  if (!c_is_zero(beta)) {
+    AstNode *x_term =
+        ast_binop(OP_MUL, ast_number_complex(c_mul(c_real(2.0), a)),
+                  ast_variable(var, strlen(var)));
+    AstNode *atan_arg = sym_full_simplify(
+        ast_binop(OP_DIV, ast_binop(OP_ADD, x_term, ast_number_complex(b)),
+                  ast_number_complex(c_sqrt(delta))));
+    AstNode *atan_ast = ast_func_call("atan", 4, (AstNode *[]){atan_arg}, 1);
+    AstNode *scaled = sym_full_simplify(ast_binop(
+        OP_MUL,
+        ast_number_complex(c_div(c_mul(c_real(2.0), beta), c_sqrt(delta))),
+        atan_ast));
+    if (!result)
+      result = scaled;
+    else
+      result = sym_full_simplify(ast_binop(OP_ADD, result, scaled));
+  }
+
+  return result ? result : ast_number(0);
+}
+
+static AstNode *integrate_partial_fractions(const AstNode *expr,
+                                            const char *var) {
+  AstNode *numer_ast = NULL;
+  AstNode *denom_ast = NULL;
+  AstNode *quotient_ast = NULL;
+  AstNode *quotient_integral = NULL;
+  AstNode *proper_integral = NULL;
+  AstNode *result = NULL;
+  Poly1D numer = {0};
+  Poly1D denom = {0};
+  Poly1D quotient = {0};
+  Poly1D remainder = {0};
+  PfdFactorList factors = {0};
+  Complex coeffs[PFD_MAX_DEGREE + 1] = {0};
+  size_t unknown_count = 0;
+  size_t coeff_index = 0;
+
+  if (!pfd_extract_rational_expr(expr, var, &numer_ast, &denom_ast))
+    return NULL;
+  if (!poly1d_extract(numer_ast, var, PFD_MAX_DEGREE, &numer) ||
+      !poly1d_extract(denom_ast, var, PFD_MAX_DEGREE, &denom) ||
+      denom.deg < 1) {
+    ast_free(numer_ast);
+    ast_free(denom_ast);
+    return NULL;
+  }
+
+  if (!poly1d_divmod(&numer, &denom, &quotient, &remainder)) {
+    ast_free(numer_ast);
+    ast_free(denom_ast);
+    return NULL;
+  }
+
+  if (!poly1d_is_zero(&quotient)) {
+    quotient_ast = poly1d_to_ast(&quotient, var);
+    quotient_integral = sym_integrate(quotient_ast, var);
+    ast_free(quotient_ast);
+    if (!quotient_integral) {
+      ast_free(numer_ast);
+      ast_free(denom_ast);
+      return NULL;
+    }
+  }
+
+  if (poly1d_is_zero(&remainder)) {
+    ast_free(numer_ast);
+    ast_free(denom_ast);
+    return quotient_integral ? quotient_integral : ast_number(0);
+  }
+
+  if (!pfd_factor_denominator(&denom, denom_ast, var, &factors)) {
+    ast_free(numer_ast);
+    ast_free(denom_ast);
+    ast_free(quotient_integral);
+    return NULL;
+  }
+
+  for (size_t i = 0; i < factors.count; i++)
+    unknown_count += (size_t)factors.items[i].degree;
+
+  if (unknown_count == 0 || unknown_count > PFD_MAX_DEGREE ||
+      unknown_count != (size_t)denom.deg ||
+      !pfd_solve_coefficients(&remainder, &denom, &factors, coeffs,
+                              unknown_count)) {
+    ast_free(numer_ast);
+    ast_free(denom_ast);
+    ast_free(quotient_integral);
+    return NULL;
+  }
+
+  for (size_t i = 0; i < factors.count; i++) {
+    AstNode *term = NULL;
+
+    if (factors.items[i].degree == 1) {
+      term = pfd_integrate_linear_term(coeffs[coeff_index],
+                                       &factors.items[i].poly, var);
+      coeff_index++;
+    } else {
+      term = pfd_integrate_quadratic_term(coeffs[coeff_index],
+                                          coeffs[coeff_index + 1],
+                                          &factors.items[i].poly, var);
+      coeff_index += 2;
+    }
+
+    if (!term) {
+      ast_free(numer_ast);
+      ast_free(denom_ast);
+      ast_free(quotient_integral);
+      ast_free(proper_integral);
+      return NULL;
+    }
+
+    if (!proper_integral)
+      proper_integral = term;
+    else
+      proper_integral =
+          sym_full_simplify(ast_binop(OP_ADD, proper_integral, term));
+  }
+
+  if (quotient_integral && proper_integral)
+    result = sym_full_simplify(
+        ast_binop(OP_ADD, quotient_integral, proper_integral));
+  else if (quotient_integral)
+    result = quotient_integral;
+  else
+    result = proper_integral;
+
+  ast_free(numer_ast);
+  ast_free(denom_ast);
+  return result;
+}
+
 static int liate_priority(const AstNode *expr, const char *var) {
   if (!expr || !sym_contains_var(expr, var))
     return -1;
@@ -2287,6 +2880,10 @@ static IntegralAffineResult sym_integrate_affine(const AstNode *expr,
   }
 
   direct = sym_integrate_direct(expr, var);
+  if (direct)
+    return integral_affine_term(direct);
+
+  direct = integrate_partial_fractions(expr, var);
   if (direct)
     return integral_affine_term(direct);
 
