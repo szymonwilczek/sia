@@ -315,6 +315,19 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
         }
       }
     }
+    /* grad(expr, [x, y, ...]) */
+    if (strcmp(node->as.call.name, "grad") == 0 && node->as.call.nargs == 2 &&
+        node->as.call.args[1]->type == AST_MATRIX) {
+      AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
+      AstNode *res = NULL;
+      expr = substitute_vars(expr, st);
+      res = sym_grad(expr, node->as.call.args[1]);
+      ast_free(expr);
+      if (res) {
+        ast_free(node);
+        return resolve_symbolic(res, st);
+      }
+    }
     /* int(expr, var) or int(expr, var, a, b) */
     if ((strcmp(node->as.call.name, "int") == 0 ||
          strcmp(node->as.call.name, "integrate") == 0) &&
@@ -675,7 +688,7 @@ static int process_input(const char *input, int batch_mode) {
 
   pr.root = resolve_symbolic(pr.root, &global_symtab);
 
-  /* symbolic function calls: diff, int, simplify */
+  /* symbolic function calls: diff, grad, int, simplify */
   if (pr.root->type == AST_FUNC_CALL) {
     if (strcmp(pr.root->as.call.name, "diff") == 0 &&
         (pr.root->as.call.nargs == 2 || pr.root->as.call.nargs == 3) &&
@@ -703,6 +716,36 @@ static int process_input(const char *input, int batch_mode) {
         ast_free(result);
       } else {
         print_error("cannot differentiate expression");
+      }
+      parse_result_free(&pr);
+      return result ? 0 : 1;
+    }
+
+    if (strcmp(pr.root->as.call.name, "grad") == 0 &&
+        pr.root->as.call.nargs == 2) {
+      AstNode *expr = NULL;
+      AstNode *result = NULL;
+
+      if (pr.root->as.call.args[1]->type != AST_MATRIX) {
+        print_error(
+            "grad expects a matrix of variables as the second argument");
+        parse_result_free(&pr);
+        return 1;
+      }
+
+      expr =
+          substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
+      result = sym_grad(expr, pr.root->as.call.args[1]);
+      ast_free(expr);
+
+      if (result) {
+        char *s = ast_to_string(result);
+        output_result(result, s, batch_mode);
+        free(s);
+        ast_free(result);
+      } else {
+        print_error(
+            "cannot compute gradient (matrix must contain only variables)");
       }
       parse_result_free(&pr);
       return result ? 0 : 1;

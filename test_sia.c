@@ -1132,6 +1132,33 @@ static void test_diff_zero_order(void) {
   PASS();
 }
 
+static void test_grad_row_vector(void) {
+  TEST("grad: grad(x^2 * y, [x, y]) = [2*x*y, x^2]");
+  ParseResult expr = parse("x^2 * y");
+  ParseResult vars = parse("[x, y]");
+  AstNode *g = sym_grad(expr.root, vars.root);
+  ASSERT_TRUE(g != NULL);
+  ASSERT_EQ(g->type, AST_MATRIX);
+  char *s = ast_to_string(g);
+  ASSERT_STR_EQ(s, "[2*x*y, x^2]");
+  free(s);
+  ast_free(g);
+  parse_result_free(&vars);
+  parse_result_free(&expr);
+  PASS();
+}
+
+static void test_grad_invalid_matrix(void) {
+  TEST("grad: reject non-variable matrix elements");
+  ParseResult expr = parse("x^2 * y");
+  ParseResult vars = parse("[x, 1]");
+  AstNode *g = sym_grad(expr.root, vars.root);
+  ASSERT_TRUE(g == NULL);
+  parse_result_free(&vars);
+  parse_result_free(&expr);
+  PASS();
+}
+
 static void test_diff_exp(void) {
   TEST("diff: d/dx(exp(x)) = exp(x)");
   ParseResult r = parse("exp(x)");
@@ -2473,6 +2500,8 @@ int main(void) {
   test_diff_nested_hyperbolic();
   test_diff_nth_order();
   test_diff_zero_order();
+  test_grad_row_vector();
+  test_grad_invalid_matrix();
   test_diff_exp();
   test_diff_ln();
   test_diff_log_base10();

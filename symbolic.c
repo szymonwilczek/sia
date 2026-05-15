@@ -1182,6 +1182,44 @@ AstNode *sym_diff_n(const AstNode *expr, const char *var, int order) {
   return current;
 }
 
+AstNode *sym_grad(const AstNode *expr, const AstNode *vars_matrix) {
+  size_t total = 0;
+  AstNode **elems = NULL;
+  AstNode *result = NULL;
+
+  if (!expr || !vars_matrix || vars_matrix->type != AST_MATRIX)
+    return NULL;
+
+  total = vars_matrix->as.matrix.rows * vars_matrix->as.matrix.cols;
+  elems = calloc(total, sizeof(AstNode *));
+  if (!elems)
+    return NULL;
+
+  for (size_t i = 0; i < total; i++) {
+    const AstNode *var_node = vars_matrix->as.matrix.elements[i];
+    if (!var_node || var_node->type != AST_VARIABLE) {
+      for (size_t j = 0; j < i; j++)
+        ast_free(elems[j]);
+      free(elems);
+      return NULL;
+    }
+
+    elems[i] = sym_diff(expr, var_node->as.variable);
+    if (!elems[i]) {
+      for (size_t j = 0; j <= i; j++)
+        ast_free(elems[j]);
+      free(elems);
+      return NULL;
+    }
+    elems[i] = sym_simplify(elems[i]);
+  }
+
+  result = ast_matrix(elems, vars_matrix->as.matrix.rows,
+                      vars_matrix->as.matrix.cols);
+  free(elems);
+  return result;
+}
+
 static AstNode *integrate_trig(const AstNode *expr, const char *var) {
   if (expr->type != AST_FUNC_CALL || expr->as.call.nargs != 1)
     return NULL;
