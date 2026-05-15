@@ -1,5 +1,5 @@
-#include "../test_support.h"
 #include "../test_suites.h"
+#include "../test_support.h"
 
 static void test_simplify_zero_mul(void) {
   TEST("simplify: 0 * x -> 0");
@@ -10,7 +10,6 @@ static void test_simplify_zero_mul(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_simplify_identity_add(void) {
   TEST("simplify: x + 0 -> x");
@@ -23,7 +22,6 @@ static void test_simplify_identity_add(void) {
   PASS();
 }
 
-
 static void test_simplify_const_fold(void) {
   TEST("simplify: 2 * 3 -> 6");
   ParseResult r = parse("2 * 3");
@@ -35,7 +33,6 @@ static void test_simplify_const_fold(void) {
   PASS();
 }
 
-
 static void test_simplify_x_minus_x(void) {
   TEST("simplify: x - x -> 0");
   ParseResult r = parse("x - x");
@@ -45,7 +42,6 @@ static void test_simplify_x_minus_x(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_simplify_x_plus_x(void) {
   TEST("simplify: x + x -> 2*x");
@@ -59,7 +55,6 @@ static void test_simplify_x_plus_x(void) {
   PASS();
 }
 
-
 static void test_simplify_x_times_x(void) {
   TEST("simplify: x * x -> x^2");
   ParseResult r = parse("x * x");
@@ -72,7 +67,6 @@ static void test_simplify_x_times_x(void) {
   PASS();
 }
 
-
 static void test_simplify_x_div_x(void) {
   TEST("simplify: x / x -> 1");
   ParseResult r = parse("x / x");
@@ -82,7 +76,6 @@ static void test_simplify_x_div_x(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_simplify_power_of_power(void) {
   TEST("simplify: (x^2)^3 -> x^6");
@@ -96,7 +89,6 @@ static void test_simplify_power_of_power(void) {
   PASS();
 }
 
-
 static void test_simplify_one_pow(void) {
   TEST("simplify: 1^x -> 1");
   ParseResult r = parse("1^x");
@@ -106,7 +98,6 @@ static void test_simplify_one_pow(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_simplify_double_neg(void) {
   TEST("simplify: -(-x) -> x");
@@ -119,7 +110,6 @@ static void test_simplify_double_neg(void) {
   PASS();
 }
 
-
 static void test_simplify_mul_neg_one(void) {
   TEST("simplify: (-1)*x -> (-x)");
   ParseResult r = parse("(-1)*x");
@@ -129,7 +119,6 @@ static void test_simplify_mul_neg_one(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_simplify_coeff_merge(void) {
   TEST("simplify: 2*(3*x) -> 6*x");
@@ -143,6 +132,17 @@ static void test_simplify_coeff_merge(void) {
   PASS();
 }
 
+static void test_simplify_constant_hoisting(void) {
+  TEST("simplify: x*2*y*3 -> 6*x*y");
+  ParseResult r = parse("x*2*y*3");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "6*x*y");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
 
 static void test_simplify_mul_reciprocal(void) {
   TEST("simplify: x * (1/x) -> 1");
@@ -153,7 +153,6 @@ static void test_simplify_mul_reciprocal(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_simplify_cancel_div(void) {
   TEST("simplify: x * (y/x) -> y");
@@ -166,7 +165,6 @@ static void test_simplify_cancel_div(void) {
   PASS();
 }
 
-
 static void test_simplify_exp_ln(void) {
   TEST("simplify: exp(ln(x)) -> x");
   ParseResult r = parse("exp(ln(x))");
@@ -177,7 +175,6 @@ static void test_simplify_exp_ln(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_simplify_elementary_functions(void) {
   TEST("simplify: abs(-16), sqrt(49), log(1000, 10), log(8, 2)");
@@ -209,7 +206,6 @@ static void test_simplify_elementary_functions(void) {
   PASS();
 }
 
-
 static void test_simplify_distributive(void) {
   TEST("simplify: (x^3 + x^2) * x^(-2) -> x + 1");
   ParseResult r = parse("(x^3 + x^2) * x^(-2)");
@@ -221,7 +217,6 @@ static void test_simplify_distributive(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_expand(void) {
   TEST("expand: (x+1)^2 -> 1 + 2*x + x^2 (or similar collected form)");
@@ -238,7 +233,6 @@ static void test_expand(void) {
   PASS();
 }
 
-
 void tests_simplification_functional(void) {
   test_simplify_zero_mul();
   test_simplify_identity_add();
@@ -252,6 +246,7 @@ void tests_simplification_functional(void) {
   test_simplify_double_neg();
   test_simplify_mul_neg_one();
   test_simplify_coeff_merge();
+  test_simplify_constant_hoisting();
   test_simplify_mul_reciprocal();
   test_simplify_cancel_div();
   test_simplify_exp_ln();

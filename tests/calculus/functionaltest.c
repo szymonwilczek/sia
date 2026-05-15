@@ -1,5 +1,5 @@
-#include "../test_support.h"
 #include "../test_suites.h"
+#include "../test_support.h"
 
 static void test_diff_constant(void) {
   TEST("diff: d/dx(5) = 0");
@@ -12,7 +12,6 @@ static void test_diff_constant(void) {
   PASS();
 }
 
-
 static void test_diff_variable(void) {
   TEST("diff: d/dx(x) = 1");
   ParseResult r = parse("x");
@@ -23,7 +22,6 @@ static void test_diff_variable(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_diff_x_squared(void) {
   TEST("diff: d/dx(x^2) = 2*x");
@@ -38,7 +36,6 @@ static void test_diff_x_squared(void) {
   PASS();
 }
 
-
 static void test_diff_polynomial(void) {
   TEST("diff: d/dx(3*x^2 + 2*x + 1)");
   ParseResult r = parse("3*x^2 + 2*x + 1");
@@ -51,7 +48,6 @@ static void test_diff_polynomial(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_diff_exp(void) {
   TEST("diff: d/dx(exp(x)) = exp(x)");
@@ -66,7 +62,6 @@ static void test_diff_exp(void) {
   PASS();
 }
 
-
 static void test_diff_ln(void) {
   TEST("diff: d/dx(ln(x)) = 1/x");
   ParseResult r = parse("ln(x)");
@@ -79,7 +74,6 @@ static void test_diff_ln(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_diff_log_base10(void) {
   TEST("diff: d/dx(log(x, 10)) = 1/(x*ln(10))");
@@ -94,7 +88,6 @@ static void test_diff_log_base10(void) {
   PASS();
 }
 
-
 static void test_diff_log_base2(void) {
   TEST("diff: d/dx(log(x, 2)) = 1/(x*ln(2))");
   ParseResult r = parse("log(x, 2)");
@@ -107,7 +100,6 @@ static void test_diff_log_base2(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_diff_abs(void) {
   TEST("diff: d/dx(abs(x)) = x/abs(x)");
@@ -122,20 +114,18 @@ static void test_diff_abs(void) {
   PASS();
 }
 
-
 static void test_diff_chain_sin_x2(void) {
   TEST("diff: d/dx(sin(x^2)) uses chain rule");
   ParseResult r = parse("sin(x^2)");
   AstNode *d = sym_diff(r.root, "x");
   ASSERT_TRUE(d != NULL);
   char *s = ast_to_string(d);
-  ASSERT_STR_EQ(s, "cos(x^2)*2*x");
+  ASSERT_TRUE(strcmp(s, "cos(x^2)*2*x") == 0 || strcmp(s, "2*cos(x^2)*x") == 0);
   free(s);
   ast_free(d);
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_diff_x_to_x(void) {
   TEST("diff: d/dx(x^x) = x^x*ln(x) + x^x");
@@ -150,7 +140,6 @@ static void test_diff_x_to_x(void) {
   PASS();
 }
 
-
 static void test_integrate_x(void) {
   TEST("int: integral(x, x) = x^2/2");
   ParseResult r = parse("x");
@@ -163,7 +152,6 @@ static void test_integrate_x(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_integrate_4x(void) {
   TEST("int: integral(4*x, x) = 4*x^2/2");
@@ -178,7 +166,6 @@ static void test_integrate_4x(void) {
   PASS();
 }
 
-
 static void test_integrate_constant(void) {
   TEST("int: integral(5, x) = 5*x");
   ParseResult r = parse("5");
@@ -191,7 +178,6 @@ static void test_integrate_constant(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_integrate_x_squared(void) {
   TEST("int: integral(x^2, x) = x^3/3");
@@ -206,7 +192,6 @@ static void test_integrate_x_squared(void) {
   PASS();
 }
 
-
 static void test_integrate_exp(void) {
   TEST("int: integral(exp(x), x) = exp(x)");
   ParseResult r = parse("exp(x)");
@@ -220,7 +205,6 @@ static void test_integrate_exp(void) {
   PASS();
 }
 
-
 static void test_integrate_1_over_x(void) {
   TEST("int: integral(x^(-1), x) = ln(x)");
   ParseResult r = parse("x^(-1)");
@@ -233,7 +217,6 @@ static void test_integrate_1_over_x(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_integrate_1_div_x(void) {
   TEST("int: integral(1/x, x) via ast_canonicalize = ln(x)");
@@ -251,7 +234,6 @@ static void test_integrate_1_div_x(void) {
   PASS();
 }
 
-
 static void test_integrate_x_div_x(void) {
   TEST("int: integral(x/x, x) via ast_canonicalize = x");
   ParseResult r = parse("x/x");
@@ -268,7 +250,6 @@ static void test_integrate_x_div_x(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_integrate_rational(void) {
   TEST("int: integral((x^3 + x^2) / x^2, x) via ast_canonicalize");
@@ -289,7 +270,6 @@ static void test_integrate_rational(void) {
 
 /* Canonical Form */
 
-
 static void test_int_definite(void) {
   TEST("int: definite integral(x, x, 0, 2) = 2");
   AstNode *expr = ast_variable("x", 1);
@@ -298,7 +278,6 @@ static void test_int_definite(void) {
   ast_free(result);
   PASS();
 }
-
 
 void tests_calculus_functional(void) {
   test_diff_constant();
