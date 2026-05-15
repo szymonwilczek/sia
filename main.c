@@ -403,15 +403,6 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
         return resolve_symbolic(result, st);
       }
     }
-    /* simplify(expr) */
-    if (strcmp(node->as.call.name, "simplify") == 0 &&
-        node->as.call.nargs == 1) {
-      AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
-      expr = substitute_vars(expr, st);
-      AstNode *simplified = sym_full_simplify(expr);
-      ast_free(node);
-      return resolve_symbolic(simplified, st);
-    }
     /* expand(expr) */
     if (strcmp(node->as.call.name, "expand") == 0 && node->as.call.nargs == 1) {
       AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);

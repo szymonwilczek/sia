@@ -123,6 +123,10 @@ AstNode *log_simplify_call(AstNode *node) {
     return node;
 
   if (kind == LOG_KIND_LN) {
+    if (is_number(node->as.call.args[0], 1.0)) {
+      ast_free(node);
+      return ast_number(0);
+    }
     return node;
   }
 

@@ -624,6 +624,42 @@ AstNode *sym_simplify(AstNode *node) {
         return ast_number_complex(folded);
       }
     }
+    /* sqrt(k^2 * m) -> k * sqrt(m) */
+    if (is_call1(node, "sqrt") && is_num(node->as.call.args[0])) {
+      Complex arg = node->as.call.args[0]->as.number;
+      Fraction frac;
+      if (arg.exact && c_is_real(arg) && arg.re > 0 &&
+          c_real_fraction(arg, &frac) && frac.num > 0) {
+        long long p = frac.num, q = frac.den;
+        long long sp = 1, sq = 1;
+        for (long long i = 2; i * i <= p; i++)
+          while (p % (i * i) == 0) {
+            sp *= i;
+            p /= (i * i);
+          }
+        for (long long i = 2; i * i <= q; i++)
+          while (q % (i * i) == 0) {
+            sq *= i;
+            q /= (i * i);
+          }
+        if (sp > 1 || sq > 1) {
+          Fraction outer_f = fraction_make(sp, sq);
+          Fraction inner_f = fraction_make(p, q);
+          AstNode *outer = ast_number_complex(
+              c_from_fractions(outer_f, fraction_make(0, 1)));
+          if (inner_f.num == 1 && inner_f.den == 1) {
+            ast_free(node);
+            return outer;
+          }
+          AstNode *inner = ast_number_complex(
+              c_from_fractions(inner_f, fraction_make(0, 1)));
+          AstNode *sqrt_inner =
+              ast_func_call("sqrt", 4, (AstNode *[]){inner}, 1);
+          ast_free(node);
+          return sym_simplify(ast_binop(OP_MUL, outer, sqrt_inner));
+        }
+      }
+    }
     /* exp(ln(x)) -> x */
     if (is_call1(node, "exp") && is_call1(node->as.call.args[0], "ln")) {
       AstNode *inner = ast_clone(node->as.call.args[0]->as.call.args[0]);
@@ -1027,6 +1063,21 @@ AstNode *sym_simplify(AstNode *node) {
       ast_free(node);
       return ast_number(1);
     }
+    /* sqrt(x)^2 -> x */
+    if (is_number(R, 2) && is_call1(L, "sqrt")) {
+      AstNode *inner = ast_clone(L->as.call.args[0]);
+      ast_free(node);
+      return inner;
+    }
+    /* sqrt(x)^(2n) -> x^n */
+    if (is_call1(L, "sqrt") && is_num(R) && c_is_real(R->as.number) &&
+        R->as.number.re > 2 && R->as.number.re == (int)R->as.number.re &&
+        (int)R->as.number.re % 2 == 0) {
+      AstNode *inner = ast_clone(L->as.call.args[0]);
+      int n = (int)R->as.number.re / 2;
+      ast_free(node);
+      return sym_simplify(ast_binop(OP_POW, inner, ast_number(n)));
+    }
     /* (x^a)^b -> x^(a*b) */
     if (L->type == AST_BINOP && L->as.binop.op == OP_POW) {
       AstNode *base = ast_clone(L->as.binop.left);
@@ -1386,6 +1437,22 @@ AstNode *sym_expand(AstNode *node) {
         ast_free(L);
         ast_free(R);
         return res;
+      }
+    }
+
+    /* expand (A * B)^n -> A^n * B^n for small positive integer n */
+    if (node->as.binop.op == OP_POW && R->type == AST_NUMBER &&
+        c_is_real(R->as.number) && L->type == AST_BINOP &&
+        L->as.binop.op == OP_MUL) {
+      int n = (int)R->as.number.re;
+      if (n == R->as.number.re && n >= 2 && n <= 10) {
+        AstNode *lhs = sym_expand(
+            ast_binop(OP_POW, ast_clone(L->as.binop.left), ast_number(n)));
+        AstNode *rhs = sym_expand(
+            ast_binop(OP_POW, ast_clone(L->as.binop.right), ast_number(n)));
+        ast_free(L);
+        ast_free(R);
+        return sym_simplify(ast_binop(OP_MUL, lhs, rhs));
       }
     }
 
@@ -2458,6 +2525,7 @@ static int pfd_factor_poly(const Poly1D *poly, const char *var,
     }
 
     {
+      int root_snapped = 0;
       static const int snap_denoms[] = {1, 2, 3, 4, 5, 6, 8, 10, 12};
       for (size_t s = 0; s < sizeof(snap_denoms) / sizeof(snap_denoms[0]);
            s++) {
@@ -2475,9 +2543,21 @@ static int pfd_factor_poly(const Poly1D *poly, const char *var,
           tl.deg = 1;
           if (poly1d_divmod(poly, &tl, &tq, &tr) && poly1d_is_zero(&tr)) {
             root = snapped;
+            root_snapped = 1;
             break;
           }
         }
+      }
+
+      if (!root_snapped && poly->deg >= 4 && poly->deg % 2 == 0) {
+        int only_even = 1;
+        for (int i = 1; i <= poly->deg; i += 2)
+          if (!c_is_zero(poly->coeffs[i])) {
+            only_even = 0;
+            break;
+          }
+        if (only_even)
+          return pfd_factor_even_substitution(poly, var, list);
       }
     }
 
