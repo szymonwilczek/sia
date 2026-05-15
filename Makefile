@@ -1,5 +1,5 @@
-VERSION   := 0.6.9
-CODENAME  := "Gauss's Ghost"
+VERSION   := 0.7.0
+CODENAME  := "Hamilton's Horizon"
 
 CC      ?= gcc
 CFLAGS  := -std=c11 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \

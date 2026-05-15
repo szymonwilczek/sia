@@ -1158,6 +1158,30 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
   return NULL;
 }
 
+AstNode *sym_diff_n(const AstNode *expr, const char *var, int order) {
+  AstNode *current = NULL;
+
+  if (!expr || !var || order < 0)
+    return NULL;
+
+  current = ast_clone(expr);
+  if (!current)
+    return NULL;
+
+  if (order == 0)
+    return sym_simplify(current);
+
+  for (int i = 0; i < order; i++) {
+    AstNode *next = sym_diff(current, var);
+    ast_free(current);
+    if (!next)
+      return NULL;
+    current = sym_simplify(next);
+  }
+
+  return current;
+}
+
 static AstNode *integrate_trig(const AstNode *expr, const char *var) {
   if (expr->type != AST_FUNC_CALL || expr->as.call.nargs != 1)
     return NULL;

@@ -8,6 +8,7 @@
 #include "solve.h"
 #include "symbolic.h"
 #include "symtab.h"
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -147,6 +148,37 @@ static void output_str(const char *s, int batch_mode) {
   }
 }
 
+static int parse_nonnegative_int_arg(const AstNode *node, const SymTab *st,
+                                     int *out) {
+  EvalResult er;
+  double rounded = 0.0;
+
+  if (!node || !out)
+    return 0;
+
+  er = eval(node, st);
+  if (!er.ok) {
+    eval_result_free(&er);
+    return 0;
+  }
+
+  if (!c_is_real(er.value)) {
+    eval_result_free(&er);
+    return 0;
+  }
+
+  rounded = round(er.value.re);
+  if (fabs(er.value.re - rounded) > 1e-9 || rounded < 0.0 ||
+      rounded > (double)INT_MAX) {
+    eval_result_free(&er);
+    return 0;
+  }
+
+  *out = (int)rounded;
+  eval_result_free(&er);
+  return 1;
+}
+
 /* replace variables in an AST with their stored values/expressions */
 static AstNode *substitute_params(const AstNode *node, char **params,
                                   AstNode **args, size_t n) {
@@ -263,17 +295,24 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
     return NULL;
 
   if (node->type == AST_FUNC_CALL) {
-    /* diff(expr, var) */
-    if (strcmp(node->as.call.name, "diff") == 0 && node->as.call.nargs == 2 &&
+    /* diff(expr, var[, order]) */
+    if (strcmp(node->as.call.name, "diff") == 0 &&
+        (node->as.call.nargs == 2 || node->as.call.nargs == 3) &&
         node->as.call.args[1]->type == AST_VARIABLE) {
+      int order = 1;
       AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
       expr = substitute_vars(expr, st);
-      AstNode *res = sym_diff(expr, node->as.call.args[1]->as.variable);
-      ast_free(expr);
-      if (res) {
-        res = sym_simplify(res);
-        ast_free(node);
-        return resolve_symbolic(res, st);
+      if (node->as.call.nargs == 3 &&
+          !parse_nonnegative_int_arg(node->as.call.args[2], st, &order)) {
+        ast_free(expr);
+      } else {
+        AstNode *res =
+            sym_diff_n(expr, node->as.call.args[1]->as.variable, order);
+        ast_free(expr);
+        if (res) {
+          ast_free(node);
+          return resolve_symbolic(res, st);
+        }
       }
     }
     /* int(expr, var) or int(expr, var, a, b) */
@@ -639,16 +678,25 @@ static int process_input(const char *input, int batch_mode) {
   /* symbolic function calls: diff, int, simplify */
   if (pr.root->type == AST_FUNC_CALL) {
     if (strcmp(pr.root->as.call.name, "diff") == 0 &&
-        pr.root->as.call.nargs == 2 &&
+        (pr.root->as.call.nargs == 2 || pr.root->as.call.nargs == 3) &&
         pr.root->as.call.args[1]->type == AST_VARIABLE) {
+      int order = 1;
+      AstNode *result = NULL;
 
       /* substitute known variables before differentiation */
       AstNode *expr =
           substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
-      AstNode *result = sym_diff(expr, pr.root->as.call.args[1]->as.variable);
+      if (pr.root->as.call.nargs == 3 &&
+          !parse_nonnegative_int_arg(pr.root->as.call.args[2], &global_symtab,
+                                     &order)) {
+        ast_free(expr);
+        print_error("diff order must be a non-negative integer constant");
+        parse_result_free(&pr);
+        return 1;
+      }
+      result = sym_diff_n(expr, pr.root->as.call.args[1]->as.variable, order);
       ast_free(expr);
       if (result) {
-        result = sym_simplify(result);
         char *s = ast_to_string(result);
         output_result(result, s, batch_mode);
         free(s);

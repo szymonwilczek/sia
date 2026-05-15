@@ -1106,6 +1106,32 @@ static void test_diff_nested_hyperbolic(void) {
   PASS();
 }
 
+static void test_diff_nth_order(void) {
+  TEST("diff: d^2/dx^2(sin(x)) = -sin(x)");
+  ParseResult r = parse("sin(x)");
+  AstNode *d = sym_diff_n(r.root, "x", 2);
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "(-sin(x))");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_diff_zero_order(void) {
+  TEST("diff: order 0 returns simplified original expression");
+  ParseResult r = parse("sin(x)");
+  AstNode *d = sym_diff_n(r.root, "x", 0);
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "sin(x)");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_diff_exp(void) {
   TEST("diff: d/dx(exp(x)) = exp(x)");
   ParseResult r = parse("exp(x)");
@@ -2445,6 +2471,8 @@ int main(void) {
   test_diff_sinh();
   test_diff_tanh();
   test_diff_nested_hyperbolic();
+  test_diff_nth_order();
+  test_diff_zero_order();
   test_diff_exp();
   test_diff_ln();
   test_diff_log_base10();
