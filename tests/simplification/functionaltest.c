@@ -242,6 +242,18 @@ static void test_full_simplify_distribution(void) {
   PASS();
 }
 
+static void test_full_simplify_abs_power_identity(void) {
+  TEST("simplify: x^2*abs(x)^-3 -> abs(x)^-1");
+  ParseResult r = parse("x^2*abs(x)^-3");
+  AstNode *s = sym_full_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "abs(x)^-1");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_expand(void) {
   TEST("expand: (x+1)^2 -> 1 + 2*x + x^2 (or similar collected form)");
   ParseResult r = parse("(x+1)^2");
@@ -278,5 +290,6 @@ void tests_simplification_functional(void) {
   test_simplify_elementary_functions();
   test_simplify_distributive();
   test_full_simplify_distribution();
+  test_full_simplify_abs_power_identity();
   test_expand();
 }

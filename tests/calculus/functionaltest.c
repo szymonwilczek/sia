@@ -154,6 +154,17 @@ static void test_diff_chain_sin_x2_third_order(void) {
   PASS();
 }
 
+static void test_diff_abs_second_order(void) {
+  TEST("diff: d/dx^2(abs(x)) -> 0 after abs identities");
+  ParseResult r = parse("abs(x)");
+  AstNode *d = sym_diff_n(r.root, "x", 2);
+  ASSERT_TRUE(d != NULL);
+  ASSERT_TRUE(is_num_node(d, 0));
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_integrate_x(void) {
   TEST("int: integral(x, x) = x^2/2");
   ParseResult r = parse("x");
@@ -305,6 +316,7 @@ void tests_calculus_functional(void) {
   test_diff_abs();
   test_diff_chain_sin_x2();
   test_diff_chain_sin_x2_third_order();
+  test_diff_abs_second_order();
   test_diff_x_to_x();
   test_integrate_x();
   test_integrate_4x();

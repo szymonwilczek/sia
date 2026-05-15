@@ -25,6 +25,21 @@ static int is_call1(const AstNode *n, const char *name) {
          strcmp(n->as.call.name, name) == 0;
 }
 
+static int is_nonnegative_integer_node(const AstNode *n, long long *out) {
+  double rounded = 0.0;
+
+  if (!n || n->type != AST_NUMBER || !c_is_real(n->as.number))
+    return 0;
+
+  rounded = round(n->as.number.re);
+  if (fabs(n->as.number.re - rounded) > 1e-9 || rounded < 0.0)
+    return 0;
+
+  if (out)
+    *out = (long long)rounded;
+  return 1;
+}
+
 /* check if n is f(u)^2 for a given function name f */
 static int is_call1_squared(const AstNode *n, const char *fname) {
   return n && n->type == AST_BINOP && n->as.binop.op == OP_POW &&
@@ -317,6 +332,17 @@ static int flatten_mul_factors(const AstNode *node, Complex *coeff,
   }
 
   if (node->type == AST_BINOP && node->as.binop.op == OP_POW) {
+    long long exp_value = 0;
+
+    if (node->as.binop.left->type == AST_UNARY_NEG &&
+        is_nonnegative_integer_node(node->as.binop.right, &exp_value)) {
+      if (exp_value % 2 == 1)
+        *coeff = c_neg(*coeff);
+      return power_factor_list_push(
+          factors, ast_clone(node->as.binop.left->as.unary.operand),
+          ast_clone(node->as.binop.right));
+    }
+
     return power_factor_list_push(factors, ast_clone(node->as.binop.left),
                                   ast_clone(node->as.binop.right));
   }
@@ -390,6 +416,41 @@ static void merge_like_factors(PowerFactorList *factors) {
   }
 }
 
+static void fold_abs_power_identities(PowerFactorList *factors) {
+  for (size_t i = 0; i < factors->count; i++) {
+    long long exp_value = 0;
+    long long even_part = 0;
+
+    if (!factors->items[i].base || factors->items[i].base->type != AST_VARIABLE)
+      continue;
+    if (!is_nonnegative_integer_node(factors->items[i].exp, &exp_value))
+      continue;
+
+    even_part = exp_value - (exp_value % 2);
+    if (even_part == 0)
+      continue;
+
+    for (size_t j = 0; j < factors->count; j++) {
+      AstNode *new_abs_exp = NULL;
+
+      if (i == j || !factors->items[j].base)
+        continue;
+      if (!is_call1(factors->items[j].base, "abs"))
+        continue;
+      if (!ast_equal(factors->items[j].base->as.call.args[0],
+                     factors->items[i].base))
+        continue;
+
+      new_abs_exp = sym_simplify(ast_binop(OP_ADD, factors->items[j].exp,
+                                           ast_number((double)even_part)));
+      factors->items[j].exp = new_abs_exp;
+      ast_free(factors->items[i].exp);
+      factors->items[i].exp = ast_number((double)(exp_value - even_part));
+      break;
+    }
+  }
+}
+
 static int append_factor_nodes(PowerFactorList *factors, NodeList *nodes) {
   for (size_t i = 0; i < factors->count; i++) {
     AstNode *factor_node = NULL;
@@ -437,36 +498,43 @@ static AstNode *normalize_mul_factors(const AstNode *node) {
       ast_free(factors.items[j].base);
       factors.items[j].base = NULL;
     }
-  }
-
-  for (size_t i = 0; i < factors.count; i++) {
-    AstNode *factor_node = NULL;
-    if (!factors.items[i].base)
-      continue;
-    factor_node = build_factor_node(&factors.items[i]);
-    if (!is_number(factor_node, 1) || nodes.count == 0) {
-      if (!node_list_push(&nodes, factor_node)) {
-        ast_free(factor_node);
-        node_list_free(&nodes);
-        power_factor_list_free(&factors);
-        return NULL;
-      }
-    } else {
-      ast_free(factor_node);
-    }
     merge_like_factors(&factors);
+    fold_abs_power_identities(&factors);
     if (!append_factor_nodes(&factors, &nodes)) {
       node_list_free(&nodes);
       power_factor_list_free(&factors);
       return NULL;
     }
 
-    result = build_mul_chain(coeff, &nodes);
-    node_list_free(&nodes);
-    power_factor_list_free(&factors);
-    return result;
+    for (size_t i = 0; i < factors.count; i++) {
+      AstNode *factor_node = NULL;
+      if (!factors.items[i].base)
+        continue;
+      factor_node = build_factor_node(&factors.items[i]);
+      if (!is_number(factor_node, 1) || nodes.count == 0) {
+        if (!node_list_push(&nodes, factor_node)) {
+          ast_free(factor_node);
+          node_list_free(&nodes);
+          power_factor_list_free(&factors);
+          return NULL;
+        }
+      } else {
+        ast_free(factor_node);
+      }
+      merge_like_factors(&factors);
+      if (!append_factor_nodes(&factors, &nodes)) {
+        node_list_free(&nodes);
+        power_factor_list_free(&factors);
+        return NULL;
+      }
+
+      result = build_mul_chain(coeff, &nodes);
+      node_list_free(&nodes);
+      power_factor_list_free(&factors);
+      return result;
+    }
+    return NULL;
   }
-  return NULL;
 }
 
 static int extract_coeff_and_base(const AstNode *node, Complex *coeff,
@@ -481,6 +549,7 @@ static int extract_coeff_and_base(const AstNode *node, Complex *coeff,
     return 0;
 
   merge_like_factors(&factors);
+  fold_abs_power_identities(&factors);
   if (!append_factor_nodes(&factors, &nodes)) {
     node_list_free(&nodes);
     power_factor_list_free(&factors);
@@ -1198,7 +1267,7 @@ AstNode *sym_collect_terms(AstNode *expr) {
   return ast_canonicalize(res);
 }
 
-AstNode *sym_full_simplify(AstNode *node) {
+static AstNode *sym_full_simplify_once(AstNode *node) {
   AstNode *expanded = NULL;
   AstNode *collected = NULL;
 
@@ -1218,6 +1287,26 @@ AstNode *sym_full_simplify(AstNode *node) {
   node = collected;
 
   return sym_simplify(node);
+}
+
+AstNode *sym_full_simplify(AstNode *node) {
+  AstNode *current = NULL;
+
+  if (!node)
+    return NULL;
+
+  current = sym_full_simplify_once(node);
+  for (int pass = 0; pass < 3; pass++) {
+    AstNode *next = sym_full_simplify_once(ast_clone(current));
+    if (ast_equal(current, next)) {
+      ast_free(next);
+      return current;
+    }
+    ast_free(current);
+    current = next;
+  }
+
+  return current;
 }
 
 static AstNode *expand_pow(AstNode *base, int n) {
