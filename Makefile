@@ -1,5 +1,5 @@
-VERSION   := 0.7.9-7
-CODENAME  := "Hamilton's Horizon"
+VERSION   := 0.8.0
+CODENAME  := "Infinite Ito"
 
 CC      ?= gcc
 CFLAGS  := -std=c11 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
