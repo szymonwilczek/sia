@@ -300,8 +300,7 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
         (node->as.call.nargs == 2 || node->as.call.nargs == 3) &&
         node->as.call.args[1]->type == AST_VARIABLE) {
       int order = 1;
-      AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
-      expr = substitute_vars(expr, st);
+      AstNode *expr = substitute_vars(ast_clone(node->as.call.args[0]), st);
       if (node->as.call.nargs == 3 &&
           !parse_nonnegative_int_arg(node->as.call.args[2], st, &order)) {
         ast_free(expr);
@@ -309,6 +308,12 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
         AstNode *res =
             sym_diff_n(expr, node->as.call.args[1]->as.variable, order);
         ast_free(expr);
+        if (!res) {
+          expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
+          expr = substitute_vars(expr, st);
+          res = sym_diff_n(expr, node->as.call.args[1]->as.variable, order);
+          ast_free(expr);
+        }
         if (res) {
           ast_free(node);
           return resolve_symbolic(res, st);
@@ -717,6 +722,13 @@ static int process_input(const char *input, int batch_mode) {
       }
       result = sym_diff_n(expr, pr.root->as.call.args[1]->as.variable, order);
       ast_free(expr);
+      if (!result) {
+        expr = resolve_symbolic(ast_clone(pr.root->as.call.args[0]),
+                                &global_symtab);
+        expr = substitute_vars(expr, &global_symtab);
+        result = sym_diff_n(expr, pr.root->as.call.args[1]->as.variable, order);
+        ast_free(expr);
+      }
       if (result) {
         char *s = ast_to_string(result);
         output_result(result, s, batch_mode);

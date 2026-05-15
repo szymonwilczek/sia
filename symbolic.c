@@ -412,6 +412,11 @@ static AstNode *build_factor_node(PowerFactor *factor) {
   return ast_binop(OP_POW, base, exp);
 }
 
+static AstNode *ast_rational(long long num, long long den) {
+  return ast_number_complex(
+      c_from_fractions(fraction_make(num, den), fraction_make(0, 1)));
+}
+
 static void merge_like_factors(PowerFactorList *factors) {
   for (size_t i = 0; i < factors->count; i++) {
     if (!factors->items[i].base)
@@ -1597,6 +1602,14 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
   case AST_FUNC_CALL: {
     if (!sym_contains_var(expr, var))
       return ast_number(0);
+
+    if ((strcmp(expr->as.call.name, "int") == 0 ||
+         strcmp(expr->as.call.name, "integrate") == 0) &&
+        expr->as.call.nargs == 2 &&
+        expr->as.call.args[1]->type == AST_VARIABLE &&
+        strcmp(expr->as.call.args[1]->as.variable, var) == 0) {
+      return sym_full_simplify(ast_clone(expr->as.call.args[0]));
+    }
 
     if (log_kind(expr) != LOG_KIND_NONE)
       return log_diff_call(expr, var);
@@ -3311,6 +3324,14 @@ static AstNode *integrate_monomial(const AstNode *expr, const char *var) {
         OP_DIV,
         ast_binop(OP_POW, ast_variable(var, strlen(var)), ast_number(n1)),
         ast_number(n1));
+  }
+
+  /* sqrt(x) -> x^(3/2)/(3/2) */
+  if (is_call1(expr, "sqrt") && is_var(expr->as.call.args[0], var)) {
+    return ast_binop(
+        OP_DIV,
+        ast_binop(OP_POW, ast_variable(var, strlen(var)), ast_rational(3, 2)),
+        ast_rational(3, 2));
   }
 
   return NULL;

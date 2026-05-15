@@ -140,6 +140,19 @@ static void test_diff_x_to_x(void) {
   PASS();
 }
 
+static void test_diff_indefinite_integral_same_variable(void) {
+  TEST("diff: d/dx(int(sqrt(x), x)) = sqrt(x)");
+  ParseResult r = parse("int(sqrt(x), x)");
+  AstNode *d = sym_diff(r.root, "x");
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_STR_EQ(s, "sqrt(x)");
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_diff_chain_sin_x2_third_order(void) {
   TEST("diff: d/dx^3(sin(x^2)) stays collected");
   ParseResult r = parse("sin(x^2)");
@@ -211,6 +224,19 @@ static void test_integrate_x_squared(void) {
   ASSERT_TRUE(result != NULL);
   char *s = ast_to_string(result);
   ASSERT_TRUE(strcmp(s, "x^3/3") == 0 || strcmp(s, "1/3*x^3") == 0);
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_sqrt_x(void) {
+  TEST("int: integral(sqrt(x), x) = 2/3*x^(3/2)");
+  ParseResult r = parse("sqrt(x)");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_STR_EQ(s, "2/3*x^3/2");
   free(s);
   ast_free(result);
   parse_result_free(&r);
@@ -727,10 +753,12 @@ void tests_calculus_functional(void) {
   test_diff_chain_sin_x2_third_order();
   test_diff_abs_second_order();
   test_diff_x_to_x();
+  test_diff_indefinite_integral_same_variable();
   test_integrate_x();
   test_integrate_4x();
   test_integrate_constant();
   test_integrate_x_squared();
+  test_integrate_sqrt_x();
   test_integrate_exp();
   test_integrate_ln();
   test_integrate_hoisted_trig_constant();

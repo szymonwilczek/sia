@@ -1,4 +1,4 @@
-VERSION   := 0.7.9-5
+VERSION   := 0.7.9-6
 CODENAME  := "Hamilton's Horizon"
 
 CC      ?= gcc
