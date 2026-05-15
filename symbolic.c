@@ -2383,38 +2383,42 @@ static int pfd_factor_poly(const Poly1D *poly, const char *var,
     return pfd_factor_list_push(list, poly, 1, 1);
 
   if (poly->deg == 2) {
-    SymTab empty = {0};
-    AstNode *poly_ast = poly1d_to_ast(poly, var);
-    SolveResult roots = sym_solve(poly_ast, var, c_real(0.0), &empty);
-    ast_free(poly_ast);
+    Complex qa = poly->coeffs[2];
+    Complex qb = poly->coeffs[1];
+    Complex qc = poly->coeffs[0];
+    Complex disc = c_sub(c_mul(qb, qb), c_mul(c_real(4.0), c_mul(qa, qc)));
+    Fraction disc_frac;
 
-    if (roots.ok && roots.count == 2 && c_is_real(roots.roots[0]) &&
-        c_is_real(roots.roots[1]) && fabs(roots.roots[0].im) < 1e-9 &&
-        fabs(roots.roots[1].im) < 1e-9) {
-      Poly1D linear = {0};
+    if (c_is_real(disc) && disc.re >= -1e-12 && disc.exact &&
+        c_real_fraction(disc, &disc_frac) && disc_frac.num >= 0) {
+      long long dp = disc_frac.num;
+      long long dq = disc_frac.den;
+      long long sp = (long long)round(sqrt((double)dp));
+      long long sq = (long long)round(sqrt((double)dq));
 
-      linear.coeffs[0] = c_neg(roots.roots[0]);
-      linear.coeffs[1] = c_real(1.0);
-      linear.deg = 1;
-      if (c_abs(c_sub(roots.roots[0], roots.roots[1])) <= 1e-9) {
-        solve_result_free(&roots);
-        return pfd_factor_list_push(list, &linear, 1, 2);
+      if (sp * sp == dp && sq * sq == dq) {
+        Complex sqrt_disc =
+            c_from_fractions(fraction_make(sp, sq), fraction_make(0, 1));
+        Complex r1 = c_div(c_sub(c_neg(qb), sqrt_disc), c_mul(c_real(2.0), qa));
+        Complex r2 = c_div(c_add(c_neg(qb), sqrt_disc), c_mul(c_real(2.0), qa));
+        Poly1D linear = {0};
+
+        linear.coeffs[0] = c_neg(r1);
+        linear.coeffs[1] = c_real(1.0);
+        linear.deg = 1;
+        if (c_abs(c_sub(r1, r2)) <= 1e-9)
+          return pfd_factor_list_push(list, &linear, 1, 2);
+
+        if (!pfd_factor_list_push(list, &linear, 1, 1))
+          return 0;
+        poly1d_zero(&linear);
+        linear.coeffs[0] = c_neg(r2);
+        linear.coeffs[1] = c_real(1.0);
+        linear.deg = 1;
+        return pfd_factor_list_push(list, &linear, 1, 1);
       }
-
-      if (!pfd_factor_list_push(list, &linear, 1, 1)) {
-        solve_result_free(&roots);
-        return 0;
-      }
-
-      poly1d_zero(&linear);
-      linear.coeffs[0] = c_neg(roots.roots[1]);
-      linear.coeffs[1] = c_real(1.0);
-      linear.deg = 1;
-      solve_result_free(&roots);
-      return pfd_factor_list_push(list, &linear, 1, 1);
     }
 
-    solve_result_free(&roots);
     return pfd_factor_list_push(list, poly, 2, 1);
   }
 
@@ -2681,17 +2685,49 @@ static AstNode *pfd_integrate_quadratic_term(Complex ax_coeff, Complex b_coeff,
   }
 
   if (!c_is_zero(beta)) {
-    AstNode *sqrt_delta = build_sqrt_node(delta);
-    AstNode *x_term =
-        ast_binop(OP_MUL, ast_number_complex(c_mul(c_real(2.0), a)),
-                  ast_variable(var, strlen(var)));
-    AstNode *atan_arg = sym_full_simplify(
-        ast_binop(OP_DIV, ast_binop(OP_ADD, x_term, ast_number_complex(b)),
-                  ast_clone(sqrt_delta)));
-    AstNode *atan_ast = ast_func_call("atan", 4, (AstNode *[]){atan_arg}, 1);
-    AstNode *scale = sym_full_simplify(ast_binop(
-        OP_DIV, ast_number_complex(c_mul(c_real(2.0), beta)), sqrt_delta));
-    AstNode *scaled = sym_full_simplify(ast_binop(OP_MUL, scale, atan_ast));
+    AstNode *scaled = NULL;
+
+    if (c_is_real(delta) && delta.re < 0) {
+      Complex neg_delta = c_neg(delta);
+      AstNode *sqrt_nd = build_sqrt_node(neg_delta);
+      AstNode *two_ax_b = sym_full_simplify(
+          ast_binop(OP_ADD,
+                    ast_binop(OP_MUL, ast_number_complex(c_mul(c_real(2.0), a)),
+                              ast_variable(var, strlen(var))),
+                    ast_number_complex(b)));
+      AstNode *ln_sub =
+          ast_func_call("ln", 2,
+                        (AstNode *[]){ast_func_call(
+                            "abs", 3,
+                            (AstNode *[]){ast_binop(OP_SUB, ast_clone(two_ax_b),
+                                                    ast_clone(sqrt_nd))},
+                            1)},
+                        1);
+      AstNode *ln_add = ast_func_call(
+          "ln", 2,
+          (AstNode *[]){ast_func_call(
+              "abs", 3,
+              (AstNode *[]){ast_binop(OP_ADD, two_ax_b, ast_clone(sqrt_nd))},
+              1)},
+          1);
+      AstNode *scale = sym_full_simplify(
+          ast_binop(OP_DIV, ast_number_complex(beta), sqrt_nd));
+      scaled = sym_full_simplify(
+          ast_binop(OP_MUL, scale, ast_binop(OP_SUB, ln_sub, ln_add)));
+    } else {
+      AstNode *sqrt_delta = build_sqrt_node(delta);
+      AstNode *x_term =
+          ast_binop(OP_MUL, ast_number_complex(c_mul(c_real(2.0), a)),
+                    ast_variable(var, strlen(var)));
+      AstNode *atan_arg = sym_full_simplify(
+          ast_binop(OP_DIV, ast_binop(OP_ADD, x_term, ast_number_complex(b)),
+                    ast_clone(sqrt_delta)));
+      AstNode *atan_ast = ast_func_call("atan", 4, (AstNode *[]){atan_arg}, 1);
+      AstNode *scale = sym_full_simplify(ast_binop(
+          OP_DIV, ast_number_complex(c_mul(c_real(2.0), beta)), sqrt_delta));
+      scaled = sym_full_simplify(ast_binop(OP_MUL, scale, atan_ast));
+    }
+
     if (!result)
       result = scaled;
     else
@@ -2709,17 +2745,48 @@ static AstNode *pfd_integrate_inv_quadratic_power(const Poly1D *factor, int n,
   Complex delta = c_sub(c_mul(c_real(4.0), c_mul(a, c0)), c_mul(b, b));
 
   if (n == 1) {
-    AstNode *sqrt_d = build_sqrt_node(delta);
-    AstNode *x_term =
-        ast_binop(OP_MUL, ast_number_complex(c_mul(c_real(2.0), a)),
-                  ast_variable(var, strlen(var)));
-    AstNode *atan_arg = sym_full_simplify(
-        ast_binop(OP_DIV, ast_binop(OP_ADD, x_term, ast_number_complex(b)),
-                  ast_clone(sqrt_d)));
-    AstNode *atan_ast = ast_func_call("atan", 4, (AstNode *[]){atan_arg}, 1);
-    AstNode *scale =
-        sym_full_simplify(ast_binop(OP_DIV, ast_number(2), sqrt_d));
-    return sym_full_simplify(ast_binop(OP_MUL, scale, atan_ast));
+    if (c_is_real(delta) && delta.re < 0) {
+      Complex neg_delta = c_neg(delta);
+      AstNode *sqrt_nd = build_sqrt_node(neg_delta);
+      AstNode *two_ax_b = sym_full_simplify(
+          ast_binop(OP_ADD,
+                    ast_binop(OP_MUL, ast_number_complex(c_mul(c_real(2.0), a)),
+                              ast_variable(var, strlen(var))),
+                    ast_number_complex(b)));
+      AstNode *ln_sub =
+          ast_func_call("ln", 2,
+                        (AstNode *[]){ast_func_call(
+                            "abs", 3,
+                            (AstNode *[]){ast_binop(OP_SUB, ast_clone(two_ax_b),
+                                                    ast_clone(sqrt_nd))},
+                            1)},
+                        1);
+      AstNode *ln_add = ast_func_call(
+          "ln", 2,
+          (AstNode *[]){ast_func_call(
+              "abs", 3,
+              (AstNode *[]){ast_binop(OP_ADD, two_ax_b, ast_clone(sqrt_nd))},
+              1)},
+          1);
+      AstNode *scale =
+          sym_full_simplify(ast_binop(OP_DIV, ast_number(1), sqrt_nd));
+      return sym_full_simplify(
+          ast_binop(OP_MUL, scale, ast_binop(OP_SUB, ln_sub, ln_add)));
+    }
+
+    {
+      AstNode *sqrt_d = build_sqrt_node(delta);
+      AstNode *x_term =
+          ast_binop(OP_MUL, ast_number_complex(c_mul(c_real(2.0), a)),
+                    ast_variable(var, strlen(var)));
+      AstNode *atan_arg = sym_full_simplify(
+          ast_binop(OP_DIV, ast_binop(OP_ADD, x_term, ast_number_complex(b)),
+                    ast_clone(sqrt_d)));
+      AstNode *atan_ast = ast_func_call("atan", 4, (AstNode *[]){atan_arg}, 1);
+      AstNode *scale =
+          sym_full_simplify(ast_binop(OP_DIV, ast_number(2), sqrt_d));
+      return sym_full_simplify(ast_binop(OP_MUL, scale, atan_ast));
+    }
   }
 
   {

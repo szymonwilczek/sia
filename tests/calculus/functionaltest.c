@@ -599,6 +599,30 @@ static void test_integrate_partial_fractions_repeated_quadratic(void) {
   PASS();
 }
 
+static void test_integrate_partial_fractions_irrational_roots(void) {
+  TEST("int: partial fractions irrational roots integral(1/(x^2 - 2), x)");
+  ParseResult r = parse("1/(x^2 - 2)");
+  AstNode *expr = ast_canonicalize(ast_clone(r.root));
+  AstNode *result = NULL;
+  char *s = NULL;
+
+  expr = sym_simplify(expr);
+  result = sym_integrate(expr, "x");
+  ASSERT_TRUE(result != NULL);
+
+  s = ast_to_string(result);
+  ASSERT_TRUE(strstr(s, "sqrt(8)") != NULL || strstr(s, "sqrt(") != NULL);
+  ASSERT_TRUE(strstr(s, "ln(abs(") != NULL);
+  ASSERT_TRUE(strstr(s, "10864") == NULL);
+  ASSERT_TRUE(strstr(s, "18817") == NULL);
+
+  free(s);
+  ast_free(expr);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_integrate_by_parts_x_cos(void) {
   TEST("int: by parts integral(x*cos(x), x)");
   ParseResult r = parse("x*cos(x)");
@@ -727,6 +751,7 @@ void tests_calculus_functional(void) {
   test_integrate_partial_fractions_symbolic_sqrt();
   test_integrate_partial_fractions_four_linear();
   test_integrate_partial_fractions_repeated_quadratic();
+  test_integrate_partial_fractions_irrational_roots();
   test_integrate_by_parts_x_cos();
   test_integrate_by_parts_x2_exp();
   test_integrate_by_parts_recurring_exp_sin();
