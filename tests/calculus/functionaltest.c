@@ -140,6 +140,20 @@ static void test_diff_x_to_x(void) {
   PASS();
 }
 
+static void test_diff_chain_sin_x2_third_order(void) {
+  TEST("diff: d/dx^3(sin(x^2)) stays collected");
+  ParseResult r = parse("sin(x^2)");
+  AstNode *d = sym_diff_n(r.root, "x", 3);
+  ASSERT_TRUE(d != NULL);
+  char *s = ast_to_string(d);
+  ASSERT_TRUE(strcmp(s, "-12*x*sin(x^2) + -8*x^3*cos(x^2)") == 0 ||
+              strcmp(s, "-8*x^3*cos(x^2) + -12*x*sin(x^2)") == 0);
+  free(s);
+  ast_free(d);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_integrate_x(void) {
   TEST("int: integral(x, x) = x^2/2");
   ParseResult r = parse("x");
@@ -290,6 +304,7 @@ void tests_calculus_functional(void) {
   test_diff_log_base2();
   test_diff_abs();
   test_diff_chain_sin_x2();
+  test_diff_chain_sin_x2_third_order();
   test_diff_x_to_x();
   test_integrate_x();
   test_integrate_4x();

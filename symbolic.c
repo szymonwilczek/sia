@@ -369,6 +369,46 @@ static AstNode *build_factor_node(PowerFactor *factor) {
   return ast_binop(OP_POW, base, exp);
 }
 
+static void merge_like_factors(PowerFactorList *factors) {
+  for (size_t i = 0; i < factors->count; i++) {
+    if (!factors->items[i].base)
+      continue;
+    for (size_t j = i + 1; j < factors->count; j++) {
+      AstNode *exp = NULL;
+      if (!factors->items[j].base)
+        continue;
+      if (!ast_equal(factors->items[i].base, factors->items[j].base))
+        continue;
+
+      exp = sym_simplify(
+          ast_binop(OP_ADD, factors->items[i].exp, factors->items[j].exp));
+      factors->items[i].exp = exp;
+      factors->items[j].exp = NULL;
+      ast_free(factors->items[j].base);
+      factors->items[j].base = NULL;
+    }
+  }
+}
+
+static int append_factor_nodes(PowerFactorList *factors, NodeList *nodes) {
+  for (size_t i = 0; i < factors->count; i++) {
+    AstNode *factor_node = NULL;
+    if (!factors->items[i].base)
+      continue;
+    factor_node = build_factor_node(&factors->items[i]);
+    if (!is_number(factor_node, 1) || nodes->count == 0) {
+      if (!node_list_push(nodes, factor_node)) {
+        ast_free(factor_node);
+        return 0;
+      }
+    } else {
+      ast_free(factor_node);
+    }
+  }
+
+  return 1;
+}
+
 static AstNode *normalize_mul_factors(const AstNode *node) {
   Complex coeff = c_real(1.0);
   PowerFactorList factors = {0};
@@ -414,45 +454,48 @@ static AstNode *normalize_mul_factors(const AstNode *node) {
     } else {
       ast_free(factor_node);
     }
-  }
+    merge_like_factors(&factors);
+    if (!append_factor_nodes(&factors, &nodes)) {
+      node_list_free(&nodes);
+      power_factor_list_free(&factors);
+      return NULL;
+    }
 
-  result = build_mul_chain(coeff, &nodes);
-  node_list_free(&nodes);
-  power_factor_list_free(&factors);
-  return result;
+    result = build_mul_chain(coeff, &nodes);
+    node_list_free(&nodes);
+    power_factor_list_free(&factors);
+    return result;
+  }
+  return NULL;
 }
 
 static int extract_coeff_and_base(const AstNode *node, Complex *coeff,
                                   AstNode **base) {
-  AstNode *normalized = NULL;
+  PowerFactorList factors = {0};
+  NodeList nodes = {0};
 
   *coeff = c_real(1.0);
   *base = NULL;
 
-  normalized = normalize_mul_factors(node);
-  if (!normalized)
+  if (!flatten_mul_factors(node, coeff, &factors))
     return 0;
 
-  if (normalized->type == AST_NUMBER) {
-    *coeff = normalized->as.number;
-    ast_free(normalized);
-    return 1;
+  merge_like_factors(&factors);
+  if (!append_factor_nodes(&factors, &nodes)) {
+    node_list_free(&nodes);
+    power_factor_list_free(&factors);
+    return 0;
   }
 
-  if (normalized->type == AST_BINOP && normalized->as.binop.op == OP_MUL &&
-      normalized->as.binop.left->type == AST_NUMBER) {
-    *coeff = normalized->as.binop.left->as.number;
-    *base = ast_clone(normalized->as.binop.right);
-  } else {
-    *base = ast_clone(normalized);
-  }
+  *base = build_mul_chain(c_real(1.0), &nodes);
+  node_list_free(&nodes);
+  power_factor_list_free(&factors);
 
   if (*base && is_number(*base, 1)) {
     ast_free(*base);
     *base = NULL;
   }
 
-  ast_free(normalized);
   return 1;
 }
 
@@ -1155,6 +1198,28 @@ AstNode *sym_collect_terms(AstNode *expr) {
   return ast_canonicalize(res);
 }
 
+AstNode *sym_full_simplify(AstNode *node) {
+  AstNode *expanded = NULL;
+  AstNode *collected = NULL;
+
+  if (!node)
+    return NULL;
+
+  node = sym_simplify(node);
+
+  expanded = sym_expand(node);
+  ast_free(node);
+  node = expanded;
+
+  node = ast_canonicalize(node);
+
+  collected = sym_collect_terms(node);
+  ast_free(node);
+  node = collected;
+
+  return sym_simplify(node);
+}
+
 static AstNode *expand_pow(AstNode *base, int n) {
   if (n == 1)
     return sym_expand(base);
@@ -1470,14 +1535,14 @@ AstNode *sym_diff_n(const AstNode *expr, const char *var, int order) {
     return NULL;
 
   if (order == 0)
-    return sym_simplify(current);
+    return sym_full_simplify(current);
 
   for (int i = 0; i < order; i++) {
     AstNode *next = sym_diff(current, var);
     ast_free(current);
     if (!next)
       return NULL;
-    current = sym_simplify(next);
+    current = sym_full_simplify(next);
   }
 
   return current;

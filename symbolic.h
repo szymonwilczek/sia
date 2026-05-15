@@ -4,6 +4,7 @@
 #include "ast.h"
 
 AstNode *sym_simplify(AstNode *node);
+AstNode *sym_full_simplify(AstNode *node);
 AstNode *sym_diff(const AstNode *expr, const char *var);
 AstNode *sym_diff_n(const AstNode *expr, const char *var, int order);
 AstNode *sym_grad(const AstNode *expr, const AstNode *vars_matrix);

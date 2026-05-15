@@ -230,6 +230,18 @@ static void test_simplify_distributive(void) {
   PASS();
 }
 
+static void test_full_simplify_distribution(void) {
+  TEST("simplify: (x + 1)*(x + 2) -> 2 + 3*x + x^2");
+  ParseResult r = parse("(x + 1)*(x + 2)");
+  AstNode *s = sym_full_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "2 + 3*x + x^2");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_expand(void) {
   TEST("expand: (x+1)^2 -> 1 + 2*x + x^2 (or similar collected form)");
   ParseResult r = parse("(x+1)^2");
@@ -265,5 +277,6 @@ void tests_simplification_functional(void) {
   test_simplify_exp_ln();
   test_simplify_elementary_functions();
   test_simplify_distributive();
+  test_full_simplify_distribution();
   test_expand();
 }

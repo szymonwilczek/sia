@@ -378,11 +378,7 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
           AstNode *res_lower = substitute_params(result, &var_name, &lower, 1);
 
           AstNode *def_res = ast_binop(OP_SUB, res_upper, res_lower);
-          def_res = sym_simplify(def_res);
-          def_res = sym_expand(def_res);
-          def_res = ast_canonicalize(def_res);
-          def_res = sym_collect_terms(def_res);
-          def_res = sym_simplify(def_res);
+          def_res = sym_full_simplify(def_res);
 
           ast_free(result);
           ast_free(upper);
@@ -412,10 +408,7 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
         node->as.call.nargs == 1) {
       AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
       expr = substitute_vars(expr, st);
-      AstNode *simplified = sym_simplify(expr);
-      simplified = ast_canonicalize(simplified);
-      simplified = sym_collect_terms(simplified);
-      simplified = sym_simplify(simplified);
+      AstNode *simplified = sym_full_simplify(expr);
       ast_free(node);
       return resolve_symbolic(simplified, st);
     }
@@ -837,11 +830,7 @@ static int process_input(const char *input, int batch_mode) {
           AstNode *res_lower = substitute_params(result, &var_name, &lower, 1);
 
           AstNode *def_res = ast_binop(OP_SUB, res_upper, res_lower);
-          def_res = sym_simplify(def_res);
-          def_res = sym_expand(def_res);
-          def_res = ast_canonicalize(def_res);
-          def_res = sym_collect_terms(def_res);
-          def_res = sym_simplify(def_res);
+          def_res = sym_full_simplify(def_res);
 
           char *s = ast_to_string(def_res);
           output_result(def_res, s, batch_mode);
@@ -952,10 +941,7 @@ static int process_input(const char *input, int batch_mode) {
       /* substitute known variables before simplification */
       AstNode *expr =
           substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
-      AstNode *simplified = sym_simplify(expr);
-      simplified = ast_canonicalize(simplified);
-      simplified = sym_collect_terms(simplified);
-      simplified = sym_simplify(simplified);
+      AstNode *simplified = sym_full_simplify(expr);
       char *s = ast_to_string(simplified);
       output_result(simplified, s, batch_mode);
       free(s);
