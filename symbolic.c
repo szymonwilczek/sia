@@ -1850,6 +1850,8 @@ static AstNode *integrate_trig(const AstNode *expr, const char *var) {
   return NULL;
 }
 
+AstNode *sym_integrate(const AstNode *expr, const char *var);
+
 static AstNode *integrate_monomial(const AstNode *expr, const char *var) {
   /* constant -> c*x */
   if (!sym_contains_var(expr, var)) {
@@ -1880,28 +1882,10 @@ static AstNode *integrate_monomial(const AstNode *expr, const char *var) {
         ast_number(n1));
   }
 
-  /* c*f(x) -> c * int(f(x)) */
-  if (expr->type == AST_BINOP && expr->as.binop.op == OP_MUL) {
-    if (!sym_contains_var(expr->as.binop.left, var)) {
-      AstNode *inner = integrate_monomial(expr->as.binop.right, var);
-      if (!inner)
-        inner = integrate_trig(expr->as.binop.right, var);
-      if (inner)
-        return ast_binop(OP_MUL, ast_clone(expr->as.binop.left), inner);
-    }
-    if (!sym_contains_var(expr->as.binop.right, var)) {
-      AstNode *inner = integrate_monomial(expr->as.binop.left, var);
-      if (!inner)
-        inner = integrate_trig(expr->as.binop.left, var);
-      if (inner)
-        return ast_binop(OP_MUL, ast_clone(expr->as.binop.right), inner);
-    }
-  }
-
   return NULL;
 }
 
-AstNode *sym_integrate(const AstNode *expr, const char *var) {
+static AstNode *sym_integrate_raw(const AstNode *expr, const char *var) {
   if (!expr)
     return NULL;
 
@@ -1925,6 +1909,22 @@ AstNode *sym_integrate(const AstNode *expr, const char *var) {
     return NULL;
   }
 
+  /* c*f(x) -> c * int(f(x)) after global product normalization */
+  if (expr->type == AST_BINOP && expr->as.binop.op == OP_MUL) {
+    if (!sym_contains_var(expr->as.binop.left, var)) {
+      AstNode *inner = sym_integrate(expr->as.binop.right, var);
+      if (inner)
+        return sym_full_simplify(
+            ast_binop(OP_MUL, ast_clone(expr->as.binop.left), inner));
+    }
+    if (!sym_contains_var(expr->as.binop.right, var)) {
+      AstNode *inner = sym_integrate(expr->as.binop.left, var);
+      if (inner)
+        return sym_full_simplify(
+            ast_binop(OP_MUL, ast_clone(expr->as.binop.right), inner));
+    }
+  }
+
   /* try trig/exp integrals first */
   AstNode *result = integrate_trig(expr, var);
   if (result)
@@ -1936,6 +1936,22 @@ AstNode *sym_integrate(const AstNode *expr, const char *var) {
     return sym_simplify(result);
 
   return NULL;
+}
+
+AstNode *sym_integrate(const AstNode *expr, const char *var) {
+  AstNode *normalized = NULL;
+  AstNode *result = NULL;
+
+  if (!expr)
+    return NULL;
+
+  normalized = sym_full_simplify(ast_clone(expr));
+  if (!normalized)
+    return NULL;
+
+  result = sym_integrate_raw(normalized, var);
+  ast_free(normalized);
+  return result;
 }
 
 static AstNode *sym_det_recursive(AstNode **elems, size_t n, size_t stride) {

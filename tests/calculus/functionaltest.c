@@ -184,7 +184,7 @@ static void test_integrate_4x(void) {
   AstNode *result = sym_integrate(r.root, "x");
   ASSERT_TRUE(result != NULL);
   char *s = ast_to_string(result);
-  ASSERT_STR_EQ(s, "4*x^2/2");
+  ASSERT_TRUE(strcmp(s, "4*x^2/2") == 0 || strcmp(s, "2*x^2") == 0);
   free(s);
   ast_free(result);
   parse_result_free(&r);
@@ -237,6 +237,33 @@ static void test_integrate_ln(void) {
   ASSERT_TRUE(result != NULL);
   char *s = ast_to_string(result);
   ASSERT_STR_EQ(s, "x*ln(x) - x");
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_hoisted_trig_constant(void) {
+  TEST("int: integral(2*(3*cos(x)), x) = 6*sin(x)");
+  ParseResult r = parse("2*(3*cos(x))");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_STR_EQ(s, "6*sin(x)");
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_linearity_sum(void) {
+  TEST("int: integral(sin(x) + cos(x), x)");
+  ParseResult r = parse("sin(x) + cos(x)");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_TRUE(strcmp(s, "(-cos(x)) + sin(x)") == 0 ||
+              strcmp(s, "sin(x) + (-cos(x))") == 0);
   free(s);
   ast_free(result);
   parse_result_free(&r);
@@ -337,6 +364,8 @@ void tests_calculus_functional(void) {
   test_integrate_x_squared();
   test_integrate_exp();
   test_integrate_ln();
+  test_integrate_hoisted_trig_constant();
+  test_integrate_linearity_sum();
   test_integrate_1_over_x();
   test_integrate_1_div_x();
   test_integrate_x_div_x();
