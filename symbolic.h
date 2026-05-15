@@ -7,6 +7,9 @@ AstNode *sym_simplify(AstNode *node);
 AstNode *sym_diff(const AstNode *expr, const char *var);
 AstNode *sym_diff_n(const AstNode *expr, const char *var, int order);
 AstNode *sym_grad(const AstNode *expr, const AstNode *vars_matrix);
+AstNode *sym_subs(const AstNode *expr, const char *var, const AstNode *val);
+AstNode *sym_taylor(const AstNode *expr, const char *var, const AstNode *a,
+                    int order);
 AstNode *sym_integrate(const AstNode *expr, const char *var);
 AstNode *sym_expand(AstNode *node);
 AstNode *sym_collect_terms(AstNode *expr);

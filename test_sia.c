@@ -1159,6 +1159,47 @@ static void test_grad_invalid_matrix(void) {
   PASS();
 }
 
+static void test_subs_basic(void) {
+  TEST("subs: substitute x -> 3 in x^2 + y");
+  ParseResult expr = parse("x^2 + y");
+  AstNode *value = ast_number(3);
+  AstNode *sub = sym_subs(expr.root, "x", value);
+  ASSERT_TRUE(sub != NULL);
+  char *s = ast_to_string(sub);
+  ASSERT_STR_EQ(s, "3^2 + y");
+  free(s);
+  ast_free(sub);
+  ast_free(value);
+  parse_result_free(&expr);
+  PASS();
+}
+
+static void test_taylor_sin_maclaurin(void) {
+  TEST("taylor: sin(x) around 0 to degree 5");
+  ParseResult expr = parse("sin(x)");
+  AstNode *series = sym_taylor(expr.root, "x", ast_number(0), 5);
+  ASSERT_TRUE(series != NULL);
+  char *s = ast_to_string(series);
+  ASSERT_STR_EQ(s, "x + (-x^3*1/6) + 1/120*x^5");
+  free(s);
+  ast_free(series);
+  parse_result_free(&expr);
+  PASS();
+}
+
+static void test_taylor_shifted_exp(void) {
+  TEST("taylor: exp(x) around 1 to degree 2");
+  ParseResult expr = parse("exp(x)");
+  AstNode *series = sym_taylor(expr.root, "x", ast_number(1), 2);
+  ASSERT_TRUE(series != NULL);
+  char *s = ast_to_string(series);
+  ASSERT_STR_EQ(s, "49171/36178*(x + -1)^2 + 49171/18089*x");
+  free(s);
+  ast_free(series);
+  parse_result_free(&expr);
+  PASS();
+}
+
 static void test_diff_exp(void) {
   TEST("diff: d/dx(exp(x)) = exp(x)");
   ParseResult r = parse("exp(x)");
@@ -2502,6 +2543,9 @@ int main(void) {
   test_diff_zero_order();
   test_grad_row_vector();
   test_grad_invalid_matrix();
+  test_subs_basic();
+  test_taylor_sin_maclaurin();
+  test_taylor_shifted_exp();
   test_diff_exp();
   test_diff_ln();
   test_diff_log_base10();

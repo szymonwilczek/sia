@@ -103,7 +103,55 @@ static int fold_unary_numeric_call(const char *name, Complex arg,
     *out = c_sqrt(arg);
     return 1;
   }
+  if (strcmp(name, "sin") == 0) {
+    *out = c_sin(arg);
+    return 1;
+  }
+  if (strcmp(name, "cos") == 0) {
+    *out = c_cos(arg);
+    return 1;
+  }
+  if (strcmp(name, "tan") == 0) {
+    *out = c_tan(arg);
+    return 1;
+  }
+  if (strcmp(name, "sinh") == 0) {
+    *out = c_sinh(arg);
+    return 1;
+  }
+  if (strcmp(name, "cosh") == 0) {
+    *out = c_cosh(arg);
+    return 1;
+  }
+  if (strcmp(name, "tanh") == 0) {
+    *out = c_tanh(arg);
+    return 1;
+  }
+  if (strcmp(name, "asin") == 0) {
+    *out = c_asin(arg);
+    return 1;
+  }
+  if (strcmp(name, "acos") == 0) {
+    *out = c_acos(arg);
+    return 1;
+  }
+  if (strcmp(name, "atan") == 0) {
+    *out = c_atan(arg);
+    return 1;
+  }
+  if (strcmp(name, "ln") == 0) {
+    *out = c_log(arg);
+    return 1;
+  }
+  if (strcmp(name, "exp") == 0) {
+    *out = c_exp(arg);
+    return 1;
+  }
   return 0;
+}
+
+static int is_zero_node(const AstNode *n) {
+  return n && n->type == AST_NUMBER && c_is_zero(n->as.number);
 }
 
 int sym_contains_var(const AstNode *n, const char *var) {
@@ -1218,6 +1266,160 @@ AstNode *sym_grad(const AstNode *expr, const AstNode *vars_matrix) {
                       vars_matrix->as.matrix.cols);
   free(elems);
   return result;
+}
+
+AstNode *sym_subs(const AstNode *expr, const char *var, const AstNode *val) {
+  if (!expr || !var || !val)
+    return NULL;
+
+  switch (expr->type) {
+  case AST_NUMBER:
+    return ast_clone(expr);
+  case AST_VARIABLE:
+    if (strcmp(expr->as.variable, var) == 0)
+      return ast_clone(val);
+    return ast_clone(expr);
+  case AST_BINOP:
+    return ast_binop(expr->as.binop.op, sym_subs(expr->as.binop.left, var, val),
+                     sym_subs(expr->as.binop.right, var, val));
+  case AST_UNARY_NEG:
+    return ast_unary_neg(sym_subs(expr->as.unary.operand, var, val));
+  case AST_FUNC_CALL: {
+    AstNode **args = NULL;
+    if (expr->as.call.nargs > 0) {
+      args = calloc(expr->as.call.nargs, sizeof(AstNode *));
+      if (!args)
+        return NULL;
+      for (size_t i = 0; i < expr->as.call.nargs; i++) {
+        args[i] = sym_subs(expr->as.call.args[i], var, val);
+        if (!args[i]) {
+          for (size_t j = 0; j < i; j++)
+            ast_free(args[j]);
+          free(args);
+          return NULL;
+        }
+      }
+    }
+    AstNode *result =
+        ast_func_call(expr->as.call.name, strlen(expr->as.call.name), args,
+                      expr->as.call.nargs);
+    free(args);
+    return result;
+  }
+  case AST_MATRIX: {
+    size_t total = expr->as.matrix.rows * expr->as.matrix.cols;
+    AstNode **elems = calloc(total, sizeof(AstNode *));
+    if (!elems)
+      return NULL;
+    for (size_t i = 0; i < total; i++) {
+      elems[i] = sym_subs(expr->as.matrix.elements[i], var, val);
+      if (!elems[i]) {
+        for (size_t j = 0; j < i; j++)
+          ast_free(elems[j]);
+        free(elems);
+        return NULL;
+      }
+    }
+    AstNode *result =
+        ast_matrix(elems, expr->as.matrix.rows, expr->as.matrix.cols);
+    free(elems);
+    return result;
+  }
+  }
+
+  return NULL;
+}
+
+AstNode *sym_taylor(const AstNode *expr, const char *var, const AstNode *a,
+                    int order) {
+  AstNode *sum = NULL;
+  AstNode *current = NULL;
+  AstNode *base = NULL;
+
+  if (!expr || !var || !a || order < 0)
+    return NULL;
+
+  base = sym_simplify(
+      ast_binop(OP_SUB, ast_variable(var, strlen(var)), ast_clone(a)));
+  current = ast_clone(expr);
+  if (!base || !current) {
+    ast_free(base);
+    ast_free(current);
+    return NULL;
+  }
+
+  for (int k = 0; k <= order; k++) {
+    AstNode *coeff = sym_subs(current, var, a);
+    if (!coeff) {
+      ast_free(base);
+      ast_free(current);
+      ast_free(sum);
+      return NULL;
+    }
+    coeff = sym_simplify(coeff);
+
+    if (!is_zero_node(coeff)) {
+      AstNode *term = coeff;
+
+      if (k > 0) {
+        AstNode *power = NULL;
+        Complex factorial_value;
+        int ok = 0;
+        char *error = NULL;
+
+        if (k == 1) {
+          power = ast_clone(base);
+        } else {
+          power = ast_binop(OP_POW, ast_clone(base), ast_number(k));
+        }
+        term = sym_simplify(ast_binop(OP_MUL, term, power));
+
+        factorial_value = factorial_eval_value(
+            c_from_fractions(fraction_make(k, 1), fraction_make(0, 1)), &ok,
+            &error);
+        free(error);
+        if (!ok) {
+          ast_free(term);
+          ast_free(base);
+          ast_free(current);
+          ast_free(sum);
+          return NULL;
+        }
+
+        term = sym_simplify(
+            ast_binop(OP_DIV, term, ast_number_complex(factorial_value)));
+      }
+
+      if (!sum)
+        sum = term;
+      else
+        sum = sym_simplify(ast_binop(OP_ADD, sum, term));
+    } else {
+      ast_free(coeff);
+    }
+
+    if (k < order) {
+      AstNode *next = sym_diff(current, var);
+      ast_free(current);
+      if (!next) {
+        ast_free(base);
+        ast_free(sum);
+        return NULL;
+      }
+      current = sym_simplify(next);
+    }
+  }
+
+  ast_free(base);
+  ast_free(current);
+
+  if (!sum)
+    return ast_number(0);
+
+  sum = ast_canonicalize(sum);
+  sum = sym_collect_terms(sum);
+  sum = sym_simplify(sum);
+  return sum;
 }
 
 static AstNode *integrate_trig(const AstNode *expr, const char *var) {

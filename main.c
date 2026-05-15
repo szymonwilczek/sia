@@ -328,6 +328,30 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
         return resolve_symbolic(res, st);
       }
     }
+    /* taylor(expr, var, a, order) */
+    if (strcmp(node->as.call.name, "taylor") == 0 && node->as.call.nargs == 4 &&
+        node->as.call.args[1]->type == AST_VARIABLE) {
+      int order = 0;
+      AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
+      AstNode *point = resolve_symbolic(ast_clone(node->as.call.args[2]), st);
+
+      expr = substitute_vars(expr, st);
+      point = substitute_vars(point, st);
+
+      if (!parse_nonnegative_int_arg(node->as.call.args[3], st, &order)) {
+        ast_free(expr);
+        ast_free(point);
+      } else {
+        AstNode *res =
+            sym_taylor(expr, node->as.call.args[1]->as.variable, point, order);
+        ast_free(expr);
+        ast_free(point);
+        if (res) {
+          ast_free(node);
+          return resolve_symbolic(res, st);
+        }
+      }
+    }
     /* int(expr, var) or int(expr, var, a, b) */
     if ((strcmp(node->as.call.name, "int") == 0 ||
          strcmp(node->as.call.name, "integrate") == 0) &&
@@ -688,7 +712,7 @@ static int process_input(const char *input, int batch_mode) {
 
   pr.root = resolve_symbolic(pr.root, &global_symtab);
 
-  /* symbolic function calls: diff, grad, int, simplify */
+  /* symbolic function calls: diff, grad, taylor, int, simplify */
   if (pr.root->type == AST_FUNC_CALL) {
     if (strcmp(pr.root->as.call.name, "diff") == 0 &&
         (pr.root->as.call.nargs == 2 || pr.root->as.call.nargs == 3) &&
@@ -746,6 +770,42 @@ static int process_input(const char *input, int batch_mode) {
       } else {
         print_error(
             "cannot compute gradient (matrix must contain only variables)");
+      }
+      parse_result_free(&pr);
+      return result ? 0 : 1;
+    }
+
+    if (strcmp(pr.root->as.call.name, "taylor") == 0 &&
+        pr.root->as.call.nargs == 4 &&
+        pr.root->as.call.args[1]->type == AST_VARIABLE) {
+      int order = 0;
+      AstNode *expr = NULL;
+      AstNode *point = NULL;
+      AstNode *result = NULL;
+
+      if (!parse_nonnegative_int_arg(pr.root->as.call.args[3], &global_symtab,
+                                     &order)) {
+        print_error("taylor order must be a non-negative integer constant");
+        parse_result_free(&pr);
+        return 1;
+      }
+
+      expr =
+          substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
+      point =
+          substitute_vars(ast_clone(pr.root->as.call.args[2]), &global_symtab);
+      result =
+          sym_taylor(expr, pr.root->as.call.args[1]->as.variable, point, order);
+      ast_free(expr);
+      ast_free(point);
+
+      if (result) {
+        char *s = ast_to_string(result);
+        output_result(result, s, batch_mode);
+        free(s);
+        ast_free(result);
+      } else {
+        print_error("cannot compute Taylor series");
       }
       parse_result_free(&pr);
       return result ? 0 : 1;
