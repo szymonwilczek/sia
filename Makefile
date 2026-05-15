@@ -1,4 +1,4 @@
-VERSION   := 0.6.7
+VERSION   := 0.6.8
 CODENAME  := "Gauss's Ghost"
 
 CC      ?= gcc

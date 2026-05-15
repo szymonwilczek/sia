@@ -244,6 +244,16 @@ static void ast_serialize(const AstNode *node, StrBuf *sb,
     Complex z = node->as.number;
     if (z.exact && fraction_is_zero(z.im_q)) {
       sb_append_fraction(sb, z.re_q);
+    } else if (z.exact && fraction_is_zero(z.re_q)) {
+      if (fraction_is_one(z.im_q)) {
+        sb_append(sb, "i", 1);
+      } else if (z.im_q.num == -z.im_q.den) {
+        sb_append(sb, "(-i)", 4);
+      } else if (z.im_q.den == 1) {
+        sb_printf(sb, "%lldi", z.im_q.num);
+      } else {
+        sb_printf(sb, "%lld/%lldi", z.im_q.num, z.im_q.den);
+      }
     } else if (z.exact) {
       sb_append(sb, "(", 1);
       sb_append_fraction(sb, z.re_q);

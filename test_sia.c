@@ -859,6 +859,32 @@ static void test_simplify_elementary_functions(void) {
   PASS();
 }
 
+static void test_simplify_complex_trig_identities(void) {
+  TEST("simplify: complex trig-hyperbolic identities");
+
+  struct {
+    const char *input;
+    const char *expected;
+  } cases[] = {
+      {"sinh(i*x)", "i*sin(x)"},       {"cosh(i*x)", "cos(x)"},
+      {"tanh(i*x)", "i*tan(x)"},       {"sin(i*x)", "i*sinh(x)"},
+      {"cos(i*x)", "cosh(x)"},         {"tan(i*x)", "i*tanh(x)"},
+      {"sinh((0 + i)*x)", "i*sin(x)"},
+  };
+
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    ParseResult r = parse(cases[i].input);
+    AstNode *s = sym_simplify(ast_clone(r.root));
+    char *str = ast_to_string(s);
+    ASSERT_STR_EQ(str, cases[i].expected);
+    free(str);
+    ast_free(s);
+    parse_result_free(&r);
+  }
+
+  PASS();
+}
+
 static void test_simplify_number_theory(void) {
   TEST("simplify: gcd/lcm exact folding");
 
@@ -2321,6 +2347,7 @@ int main(void) {
   test_simplify_trig_pythagorean();
   test_simplify_exp_ln();
   test_simplify_elementary_functions();
+  test_simplify_complex_trig_identities();
   test_simplify_number_theory();
   test_simplify_distributive();
   test_expand();
