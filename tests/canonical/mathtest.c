@@ -1,5 +1,5 @@
-#include "../test_support.h"
 #include "../test_suites.h"
+#include "../test_support.h"
 
 static void test_canonical_sub_to_add(void) {
   TEST("canonical: A - B -> A + (-1)*B");
@@ -11,7 +11,6 @@ static void test_canonical_sub_to_add(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_canonical_div_to_mul(void) {
   TEST("canonical: A / B -> A * B^(-1)");
@@ -25,7 +24,6 @@ static void test_canonical_div_to_mul(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_canonical_sort(void) {
   TEST("canonical: commutative sort x + 2 -> 2 + x");
@@ -42,11 +40,24 @@ static void test_canonical_sort(void) {
   PASS();
 }
 
-/* Symbol Table */
+static void test_canonical_polynomial_flatten(void) {
+  TEST("canonical: polynomial flatten (y + x)^2");
+  ParseResult r = parse("(y + x)^2");
+  AstNode *c = ast_polynomial_canonicalize(r.root);
+  ASSERT_TRUE(c != NULL);
+  char *s = ast_to_string(c);
+  ASSERT_STR_EQ(s, "x^2 + 2*x*y + y^2");
+  free(s);
+  ast_free(c);
+  parse_result_free(&r);
+  PASS();
+}
 
+/* Symbol Table */
 
 void tests_canonical_mathtest(void) {
   test_canonical_sub_to_add();
   test_canonical_div_to_mul();
   test_canonical_sort();
+  test_canonical_polynomial_flatten();
 }

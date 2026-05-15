@@ -481,60 +481,18 @@ static AstNode *normalize_mul_factors(const AstNode *node) {
     return NULL;
   }
 
-  for (size_t i = 0; i < factors.count; i++) {
-    if (!factors.items[i].base)
-      continue;
-    for (size_t j = i + 1; j < factors.count; j++) {
-      AstNode *exp = NULL;
-      if (!factors.items[j].base)
-        continue;
-      if (!ast_equal(factors.items[i].base, factors.items[j].base))
-        continue;
-
-      exp = sym_simplify(
-          ast_binop(OP_ADD, factors.items[i].exp, factors.items[j].exp));
-      factors.items[i].exp = exp;
-      factors.items[j].exp = NULL;
-      ast_free(factors.items[j].base);
-      factors.items[j].base = NULL;
-    }
-    merge_like_factors(&factors);
-    fold_abs_power_identities(&factors);
-    if (!append_factor_nodes(&factors, &nodes)) {
-      node_list_free(&nodes);
-      power_factor_list_free(&factors);
-      return NULL;
-    }
-
-    for (size_t i = 0; i < factors.count; i++) {
-      AstNode *factor_node = NULL;
-      if (!factors.items[i].base)
-        continue;
-      factor_node = build_factor_node(&factors.items[i]);
-      if (!is_number(factor_node, 1) || nodes.count == 0) {
-        if (!node_list_push(&nodes, factor_node)) {
-          ast_free(factor_node);
-          node_list_free(&nodes);
-          power_factor_list_free(&factors);
-          return NULL;
-        }
-      } else {
-        ast_free(factor_node);
-      }
-      merge_like_factors(&factors);
-      if (!append_factor_nodes(&factors, &nodes)) {
-        node_list_free(&nodes);
-        power_factor_list_free(&factors);
-        return NULL;
-      }
-
-      result = build_mul_chain(coeff, &nodes);
-      node_list_free(&nodes);
-      power_factor_list_free(&factors);
-      return result;
-    }
+  merge_like_factors(&factors);
+  fold_abs_power_identities(&factors);
+  if (!append_factor_nodes(&factors, &nodes)) {
+    node_list_free(&nodes);
+    power_factor_list_free(&factors);
     return NULL;
   }
+
+  result = build_mul_chain(coeff, &nodes);
+  node_list_free(&nodes);
+  power_factor_list_free(&factors);
+  return result;
 }
 
 static int extract_coeff_and_base(const AstNode *node, Complex *coeff,
@@ -1270,6 +1228,7 @@ AstNode *sym_collect_terms(AstNode *expr) {
 static AstNode *sym_full_simplify_once(AstNode *node) {
   AstNode *expanded = NULL;
   AstNode *collected = NULL;
+  AstNode *poly = NULL;
 
   if (!node)
     return NULL;
@@ -1285,6 +1244,12 @@ static AstNode *sym_full_simplify_once(AstNode *node) {
   collected = sym_collect_terms(node);
   ast_free(node);
   node = collected;
+
+  poly = ast_polynomial_canonicalize(node);
+  if (poly) {
+    ast_free(node);
+    node = poly;
+  }
 
   return sym_simplify(node);
 }

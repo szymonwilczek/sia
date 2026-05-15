@@ -1,4 +1,5 @@
 #include "canonical.h"
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -147,4 +148,479 @@ AstNode *ast_canonicalize(AstNode *node) {
   sort_commutative(node);
 
   return node;
+}
+
+typedef struct {
+  char *var;
+  int degree;
+} CanonicalDegree;
+
+typedef struct {
+  Complex coeff;
+  CanonicalDegree *degrees;
+  size_t degree_count;
+  size_t degree_cap;
+} CanonicalTerm;
+
+typedef struct {
+  CanonicalTerm *terms;
+  size_t count;
+  size_t cap;
+} CanonicalPolynomial;
+
+static void canonical_term_free(CanonicalTerm *term) {
+  if (!term)
+    return;
+  for (size_t i = 0; i < term->degree_count; i++)
+    free(term->degrees[i].var);
+  free(term->degrees);
+  term->degrees = NULL;
+  term->degree_count = 0;
+  term->degree_cap = 0;
+}
+
+static void canonical_polynomial_free(CanonicalPolynomial *poly) {
+  if (!poly)
+    return;
+  for (size_t i = 0; i < poly->count; i++)
+    canonical_term_free(&poly->terms[i]);
+  free(poly->terms);
+  poly->terms = NULL;
+  poly->count = 0;
+  poly->cap = 0;
+}
+
+static int canonical_nonnegative_int(const AstNode *node, int *out) {
+  double rounded = 0.0;
+
+  if (!node || node->type != AST_NUMBER || !c_is_real(node->as.number))
+    return 0;
+
+  rounded = round(node->as.number.re);
+  if (fabs(node->as.number.re - rounded) > 1e-9 || rounded < 0.0)
+    return 0;
+
+  if (out)
+    *out = (int)rounded;
+  return 1;
+}
+
+static int canonical_term_add_degree(CanonicalTerm *term, const char *var,
+                                     int degree) {
+  size_t pos = 0;
+
+  if (degree == 0)
+    return 1;
+
+  while (pos < term->degree_count && strcmp(term->degrees[pos].var, var) < 0)
+    pos++;
+
+  if (pos < term->degree_count && strcmp(term->degrees[pos].var, var) == 0) {
+    term->degrees[pos].degree += degree;
+    return 1;
+  }
+
+  if (term->degree_count == term->degree_cap) {
+    size_t new_cap = term->degree_cap ? term->degree_cap * 2 : 4;
+    CanonicalDegree *degrees =
+        realloc(term->degrees, new_cap * sizeof(CanonicalDegree));
+    if (!degrees)
+      return 0;
+    term->degrees = degrees;
+    term->degree_cap = new_cap;
+  }
+
+  for (size_t i = term->degree_count; i > pos; i--)
+    term->degrees[i] = term->degrees[i - 1];
+
+  term->degrees[pos].var = strdup(var);
+  if (!term->degrees[pos].var)
+    return 0;
+  term->degrees[pos].degree = degree;
+  term->degree_count++;
+  return 1;
+}
+
+static int canonical_term_copy(CanonicalTerm *dst, const CanonicalTerm *src) {
+  dst->coeff = src->coeff;
+  dst->degrees = NULL;
+  dst->degree_count = 0;
+  dst->degree_cap = 0;
+
+  for (size_t i = 0; i < src->degree_count; i++) {
+    if (!canonical_term_add_degree(dst, src->degrees[i].var,
+                                   src->degrees[i].degree)) {
+      canonical_term_free(dst);
+      return 0;
+    }
+  }
+
+  return 1;
+}
+
+static int canonical_poly_append_owned(CanonicalPolynomial *poly,
+                                       CanonicalTerm *term) {
+  if (poly->count == poly->cap) {
+    size_t new_cap = poly->cap ? poly->cap * 2 : 4;
+    CanonicalTerm *terms =
+        realloc(poly->terms, new_cap * sizeof(CanonicalTerm));
+    if (!terms)
+      return 0;
+    poly->terms = terms;
+    poly->cap = new_cap;
+  }
+
+  poly->terms[poly->count++] = *term;
+  term->degrees = NULL;
+  term->degree_count = 0;
+  term->degree_cap = 0;
+  return 1;
+}
+
+static int canonical_terms_equal(const CanonicalTerm *a,
+                                 const CanonicalTerm *b) {
+  if (a->degree_count != b->degree_count)
+    return 0;
+  for (size_t i = 0; i < a->degree_count; i++) {
+    if (strcmp(a->degrees[i].var, b->degrees[i].var) != 0 ||
+        a->degrees[i].degree != b->degrees[i].degree)
+      return 0;
+  }
+  return 1;
+}
+
+static int canonical_total_degree(const CanonicalTerm *term) {
+  int total = 0;
+  for (size_t i = 0; i < term->degree_count; i++)
+    total += term->degrees[i].degree;
+  return total;
+}
+
+static int canonical_term_compare(const void *lhs, const void *rhs) {
+  const CanonicalTerm *a = lhs;
+  const CanonicalTerm *b = rhs;
+  int total_a = canonical_total_degree(a);
+  int total_b = canonical_total_degree(b);
+
+  if (total_a != total_b)
+    return total_a - total_b;
+
+  for (size_t i = 0; i < a->degree_count && i < b->degree_count; i++) {
+    int cmp = strcmp(a->degrees[i].var, b->degrees[i].var);
+    if (cmp != 0)
+      return cmp;
+    if (a->degrees[i].degree != b->degrees[i].degree)
+      return b->degrees[i].degree - a->degrees[i].degree;
+  }
+
+  if (a->degree_count < b->degree_count)
+    return -1;
+  if (a->degree_count > b->degree_count)
+    return 1;
+  return 0;
+}
+
+static void canonical_poly_normalize(CanonicalPolynomial *poly) {
+  size_t out = 0;
+
+  for (size_t i = 0; i < poly->count; i++) {
+    if (c_is_zero(poly->terms[i].coeff)) {
+      canonical_term_free(&poly->terms[i]);
+      continue;
+    }
+
+    size_t write = out++;
+    if (write != i)
+      poly->terms[write] = poly->terms[i];
+  }
+  poly->count = out;
+
+  for (size_t i = 0; i < poly->count; i++) {
+    for (size_t j = i + 1; j < poly->count; j++) {
+      if (!canonical_terms_equal(&poly->terms[i], &poly->terms[j]))
+        continue;
+      poly->terms[i].coeff = c_add(poly->terms[i].coeff, poly->terms[j].coeff);
+      canonical_term_free(&poly->terms[j]);
+      poly->terms[j].coeff = c_real(0.0);
+    }
+  }
+
+  out = 0;
+  for (size_t i = 0; i < poly->count; i++) {
+    if (c_is_zero(poly->terms[i].coeff)) {
+      canonical_term_free(&poly->terms[i]);
+      continue;
+    }
+
+    size_t write = out++;
+    if (write != i)
+      poly->terms[write] = poly->terms[i];
+  }
+  poly->count = out;
+
+  qsort(poly->terms, poly->count, sizeof(CanonicalTerm),
+        canonical_term_compare);
+}
+
+static int canonical_poly_constant(CanonicalPolynomial *poly, Complex coeff) {
+  CanonicalTerm term = {0};
+  term.coeff = coeff;
+  return canonical_poly_append_owned(poly, &term);
+}
+
+static int canonical_poly_variable(CanonicalPolynomial *poly,
+                                   const char *name) {
+  CanonicalTerm term = {0};
+  term.coeff = c_real(1.0);
+  if (!canonical_term_add_degree(&term, name, 1)) {
+    canonical_term_free(&term);
+    return 0;
+  }
+  return canonical_poly_append_owned(poly, &term);
+}
+
+static int canonical_poly_multiply_terms(CanonicalTerm *dst,
+                                         const CanonicalTerm *lhs,
+                                         const CanonicalTerm *rhs) {
+  dst->coeff = c_mul(lhs->coeff, rhs->coeff);
+  dst->degrees = NULL;
+  dst->degree_count = 0;
+  dst->degree_cap = 0;
+
+  for (size_t i = 0; i < lhs->degree_count; i++) {
+    if (!canonical_term_add_degree(dst, lhs->degrees[i].var,
+                                   lhs->degrees[i].degree)) {
+      canonical_term_free(dst);
+      return 0;
+    }
+  }
+
+  for (size_t i = 0; i < rhs->degree_count; i++) {
+    if (!canonical_term_add_degree(dst, rhs->degrees[i].var,
+                                   rhs->degrees[i].degree)) {
+      canonical_term_free(dst);
+      return 0;
+    }
+  }
+
+  return 1;
+}
+
+static int canonical_poly_from_ast(const AstNode *node,
+                                   CanonicalPolynomial *out);
+
+static int canonical_poly_pow(const CanonicalPolynomial *base, int exp,
+                              CanonicalPolynomial *out) {
+  CanonicalPolynomial current = {0};
+
+  if (exp == 0)
+    return canonical_poly_constant(out, c_real(1.0));
+
+  for (size_t i = 0; i < base->count; i++) {
+    CanonicalTerm copy = {0};
+    if (!canonical_term_copy(&copy, &base->terms[i]) ||
+        !canonical_poly_append_owned(&current, &copy)) {
+      canonical_term_free(&copy);
+      canonical_polynomial_free(&current);
+      return 0;
+    }
+  }
+
+  for (int i = 1; i < exp; i++) {
+    CanonicalPolynomial next = {0};
+    for (size_t l = 0; l < current.count; l++) {
+      for (size_t r = 0; r < base->count; r++) {
+        CanonicalTerm product = {0};
+        if (!canonical_poly_multiply_terms(&product, &current.terms[l],
+                                           &base->terms[r]) ||
+            !canonical_poly_append_owned(&next, &product)) {
+          canonical_term_free(&product);
+          canonical_polynomial_free(&next);
+          canonical_polynomial_free(&current);
+          return 0;
+        }
+      }
+    }
+    canonical_poly_normalize(&next);
+    canonical_polynomial_free(&current);
+    current = next;
+  }
+
+  *out = current;
+  return 1;
+}
+
+static int canonical_poly_from_ast(const AstNode *node,
+                                   CanonicalPolynomial *out) {
+  if (!node)
+    return 0;
+
+  switch (node->type) {
+  case AST_NUMBER:
+    return canonical_poly_constant(out, node->as.number);
+  case AST_VARIABLE:
+    return canonical_poly_variable(out, node->as.variable);
+  case AST_UNARY_NEG: {
+    if (!canonical_poly_from_ast(node->as.unary.operand, out))
+      return 0;
+    for (size_t i = 0; i < out->count; i++)
+      out->terms[i].coeff = c_neg(out->terms[i].coeff);
+    return 1;
+  }
+  case AST_BINOP:
+    break;
+  default:
+    return 0;
+  }
+
+  if (node->as.binop.op == OP_ADD || node->as.binop.op == OP_SUB) {
+    CanonicalPolynomial lhs = {0};
+    CanonicalPolynomial rhs = {0};
+
+    if (!canonical_poly_from_ast(node->as.binop.left, &lhs) ||
+        !canonical_poly_from_ast(node->as.binop.right, &rhs)) {
+      canonical_polynomial_free(&lhs);
+      canonical_polynomial_free(&rhs);
+      return 0;
+    }
+
+    if (node->as.binop.op == OP_SUB) {
+      for (size_t i = 0; i < rhs.count; i++)
+        rhs.terms[i].coeff = c_neg(rhs.terms[i].coeff);
+    }
+
+    for (size_t i = 0; i < lhs.count; i++) {
+      CanonicalTerm copy = {0};
+      if (!canonical_term_copy(&copy, &lhs.terms[i]) ||
+          !canonical_poly_append_owned(out, &copy)) {
+        canonical_term_free(&copy);
+        canonical_polynomial_free(&lhs);
+        canonical_polynomial_free(&rhs);
+        canonical_polynomial_free(out);
+        return 0;
+      }
+    }
+    for (size_t i = 0; i < rhs.count; i++) {
+      CanonicalTerm copy = {0};
+      if (!canonical_term_copy(&copy, &rhs.terms[i]) ||
+          !canonical_poly_append_owned(out, &copy)) {
+        canonical_term_free(&copy);
+        canonical_polynomial_free(&lhs);
+        canonical_polynomial_free(&rhs);
+        canonical_polynomial_free(out);
+        return 0;
+      }
+    }
+
+    canonical_polynomial_free(&lhs);
+    canonical_polynomial_free(&rhs);
+    canonical_poly_normalize(out);
+    return 1;
+  }
+
+  if (node->as.binop.op == OP_MUL) {
+    CanonicalPolynomial lhs = {0};
+    CanonicalPolynomial rhs = {0};
+
+    if (!canonical_poly_from_ast(node->as.binop.left, &lhs) ||
+        !canonical_poly_from_ast(node->as.binop.right, &rhs)) {
+      canonical_polynomial_free(&lhs);
+      canonical_polynomial_free(&rhs);
+      return 0;
+    }
+
+    for (size_t l = 0; l < lhs.count; l++) {
+      for (size_t r = 0; r < rhs.count; r++) {
+        CanonicalTerm product = {0};
+        if (!canonical_poly_multiply_terms(&product, &lhs.terms[l],
+                                           &rhs.terms[r]) ||
+            !canonical_poly_append_owned(out, &product)) {
+          canonical_term_free(&product);
+          canonical_polynomial_free(&lhs);
+          canonical_polynomial_free(&rhs);
+          canonical_polynomial_free(out);
+          return 0;
+        }
+      }
+    }
+
+    canonical_polynomial_free(&lhs);
+    canonical_polynomial_free(&rhs);
+    canonical_poly_normalize(out);
+    return 1;
+  }
+
+  if (node->as.binop.op == OP_POW) {
+    CanonicalPolynomial base = {0};
+    int exp = 0;
+
+    if (!canonical_nonnegative_int(node->as.binop.right, &exp) ||
+        !canonical_poly_from_ast(node->as.binop.left, &base)) {
+      canonical_polynomial_free(&base);
+      return 0;
+    }
+
+    if (!canonical_poly_pow(&base, exp, out)) {
+      canonical_polynomial_free(&base);
+      return 0;
+    }
+
+    canonical_polynomial_free(&base);
+    canonical_poly_normalize(out);
+    return 1;
+  }
+
+  return 0;
+}
+
+static AstNode *canonical_term_to_ast(const CanonicalTerm *term) {
+  AstNode *result = NULL;
+
+  if (!c_is_one(term->coeff) || term->degree_count == 0)
+    result = ast_number_complex(term->coeff);
+
+  for (size_t i = 0; i < term->degree_count; i++) {
+    AstNode *factor =
+        ast_variable(term->degrees[i].var, strlen(term->degrees[i].var));
+    if (term->degrees[i].degree != 1) {
+      factor = ast_binop(OP_POW, factor,
+                         ast_number((double)term->degrees[i].degree));
+    }
+
+    if (!result)
+      result = factor;
+    else
+      result = ast_binop(OP_MUL, result, factor);
+  }
+
+  if (!result)
+    return ast_number(0);
+  return result;
+}
+
+AstNode *ast_polynomial_canonicalize(const AstNode *node) {
+  CanonicalPolynomial poly = {0};
+  AstNode *result = NULL;
+
+  if (!node || !canonical_poly_from_ast(node, &poly)) {
+    canonical_polynomial_free(&poly);
+    return NULL;
+  }
+
+  canonical_poly_normalize(&poly);
+  if (poly.count == 0) {
+    canonical_polynomial_free(&poly);
+    return ast_number(0);
+  }
+
+  for (size_t i = 0; i < poly.count; i++) {
+    AstNode *term = canonical_term_to_ast(&poly.terms[i]);
+    if (!result)
+      result = term;
+    else
+      result = ast_binop(OP_ADD, result, term);
+  }
+
+  canonical_polynomial_free(&poly);
+  return result;
 }
