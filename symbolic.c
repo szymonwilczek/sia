@@ -1820,6 +1820,24 @@ static AstNode *integrate_trig(const AstNode *expr, const char *var) {
     return ast_func_call("exp", 3,
                          (AstNode *[]){ast_variable(var, strlen(var))}, 1);
   }
+  if (strcmp(name, "sinh") == 0) {
+    /* int sinh(x) = cosh(x) */
+    return ast_func_call("cosh", 4,
+                         (AstNode *[]){ast_variable(var, strlen(var))}, 1);
+  }
+  if (strcmp(name, "cosh") == 0) {
+    /* int cosh(x) = sinh(x) */
+    return ast_func_call("sinh", 4,
+                         (AstNode *[]){ast_variable(var, strlen(var))}, 1);
+  }
+  if (strcmp(name, "ln") == 0) {
+    /* int ln(x) = x*ln(x) - x */
+    AstNode *x1 = ast_variable(var, strlen(var));
+    AstNode *x2 = ast_variable(var, strlen(var));
+    AstNode *lnx = ast_func_call(
+        "ln", 2, (AstNode *[]){ast_variable(var, strlen(var))}, 1);
+    return ast_binop(OP_SUB, ast_binop(OP_MUL, x1, lnx), x2);
+  }
   if (strcmp(name, "tan") == 0) {
     /* int tan(x) = -ln(cos(x)) */
     return ast_unary_neg(ast_func_call(

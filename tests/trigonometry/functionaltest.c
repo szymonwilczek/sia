@@ -1,5 +1,5 @@
-#include "../test_support.h"
 #include "../test_suites.h"
+#include "../test_support.h"
 
 static void test_integrate_sin(void) {
   TEST("int: integral(sin(x), x) = -cos(x)");
@@ -14,7 +14,6 @@ static void test_integrate_sin(void) {
   PASS();
 }
 
-
 static void test_integrate_cos(void) {
   TEST("int: integral(cos(x), x) = sin(x)");
   ParseResult r = parse("cos(x)");
@@ -28,6 +27,31 @@ static void test_integrate_cos(void) {
   PASS();
 }
 
+static void test_integrate_sinh(void) {
+  TEST("int: integral(sinh(x), x) = cosh(x)");
+  ParseResult r = parse("sinh(x)");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_STR_EQ(s, "cosh(x)");
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_cosh(void) {
+  TEST("int: integral(cosh(x), x) = sinh(x)");
+  ParseResult r = parse("cosh(x)");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_STR_EQ(s, "sinh(x)");
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
 
 static void test_latex_sin(void) {
   TEST("latex: sin(x) -> \\sin\\left(x\\right)");
@@ -38,7 +62,6 @@ static void test_latex_sin(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_latex_inverse_trig(void) {
   TEST("latex: asin, acos, atan");
@@ -88,10 +111,11 @@ static void test_latex_hyperbolic(void) {
   PASS();
 }
 
-
 void tests_trigonometry_functional(void) {
   test_integrate_sin();
   test_integrate_cos();
+  test_integrate_sinh();
+  test_integrate_cosh();
   test_latex_sin();
   test_latex_inverse_trig();
   test_latex_hyperbolic();

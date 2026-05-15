@@ -230,6 +230,19 @@ static void test_integrate_exp(void) {
   PASS();
 }
 
+static void test_integrate_ln(void) {
+  TEST("int: integral(ln(x), x) = x*ln(x) - x");
+  ParseResult r = parse("ln(x)");
+  AstNode *result = sym_integrate(r.root, "x");
+  ASSERT_TRUE(result != NULL);
+  char *s = ast_to_string(result);
+  ASSERT_STR_EQ(s, "x*ln(x) - x");
+  free(s);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_integrate_1_over_x(void) {
   TEST("int: integral(x^(-1), x) = ln(x)");
   ParseResult r = parse("x^(-1)");
@@ -323,6 +336,7 @@ void tests_calculus_functional(void) {
   test_integrate_constant();
   test_integrate_x_squared();
   test_integrate_exp();
+  test_integrate_ln();
   test_integrate_1_over_x();
   test_integrate_1_div_x();
   test_integrate_x_div_x();
