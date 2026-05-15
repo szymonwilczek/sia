@@ -455,6 +455,74 @@ static void test_integrate_partial_fractions_quadratic(void) {
   PASS();
 }
 
+static void test_integrate_partial_fractions_repeated_root(void) {
+  TEST("int: partial fractions repeated root integral(1/(x*(x - 1)^2), x)");
+  ParseResult r = parse("1/(x*(x - 1)^2)");
+  AstNode *expr = ast_canonicalize(ast_clone(r.root));
+  AstNode *result = NULL;
+  char *s = NULL;
+
+  expr = sym_simplify(expr);
+  result = sym_integrate(expr, "x");
+  ASSERT_TRUE(result != NULL);
+
+  s = ast_to_string(result);
+  ASSERT_TRUE(strstr(s, "ln(abs(") != NULL);
+  ASSERT_TRUE(
+      strstr(s, "(-1 + x)^-1") != NULL || strstr(s, "1/(-1 + x)") != NULL ||
+      strstr(s, "(x - 1)^-1") != NULL || strstr(s, "1/(x - 1)") != NULL);
+
+  free(s);
+  ast_free(expr);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_partial_fractions_mixed_linear_quadratic(void) {
+  TEST("int: partial fractions mixed factors integral(1/(x^3 + x), x)");
+  ParseResult r = parse("1/(x^3 + x)");
+  AstNode *expr = ast_canonicalize(ast_clone(r.root));
+  AstNode *result = NULL;
+  char *s = NULL;
+
+  expr = sym_simplify(expr);
+  result = sym_integrate(expr, "x");
+  ASSERT_TRUE(result != NULL);
+
+  s = ast_to_string(result);
+  ASSERT_TRUE(strstr(s, "ln(abs(") != NULL);
+  ASSERT_TRUE(strstr(s, "x^2 + 1") != NULL || strstr(s, "1 + x^2") != NULL);
+
+  free(s);
+  ast_free(expr);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_integrate_partial_fractions_cubic_factorization(void) {
+  TEST("int: partial fractions cubic factorization integral(x^4/(x^3 - 1), x)");
+  ParseResult r = parse("x^4/(x^3 - 1)");
+  AstNode *expr = ast_canonicalize(ast_clone(r.root));
+  AstNode *result = NULL;
+  char *s = NULL;
+
+  expr = sym_simplify(expr);
+  result = sym_integrate(expr, "x");
+  ASSERT_TRUE(result != NULL);
+
+  s = ast_to_string(result);
+  ASSERT_TRUE(strstr(s, "x^2") != NULL);
+  ASSERT_TRUE(strstr(s, "ln(") != NULL || strstr(s, "atan(") != NULL);
+
+  free(s);
+  ast_free(expr);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_integrate_by_parts_x_cos(void) {
   TEST("int: by parts integral(x*cos(x), x)");
   ParseResult r = parse("x*cos(x)");
@@ -577,6 +645,9 @@ void tests_calculus_functional(void) {
   test_integrate_partial_fractions_linear_roots();
   test_integrate_partial_fractions_long_division();
   test_integrate_partial_fractions_quadratic();
+  test_integrate_partial_fractions_repeated_root();
+  test_integrate_partial_fractions_mixed_linear_quadratic();
+  test_integrate_partial_fractions_cubic_factorization();
   test_integrate_by_parts_x_cos();
   test_integrate_by_parts_x2_exp();
   test_integrate_by_parts_recurring_exp_sin();
