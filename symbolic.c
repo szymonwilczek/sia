@@ -230,6 +230,17 @@ typedef struct {
   size_t cap;
 } NodeList;
 
+typedef struct {
+  AstNode *base;
+  AstNode *exp;
+} PowerFactor;
+
+typedef struct {
+  PowerFactor *items;
+  size_t count;
+  size_t cap;
+} PowerFactorList;
+
 static int node_list_push(NodeList *list, AstNode *node) {
   if (list->count == list->cap) {
     size_t new_cap = list->cap ? list->cap * 2 : 4;
@@ -255,8 +266,38 @@ static void node_list_free(NodeList *list) {
   list->cap = 0;
 }
 
-static int flatten_mul_constants(const AstNode *node, Complex *coeff,
-                                 NodeList *factors) {
+static int power_factor_list_push(PowerFactorList *list, AstNode *base,
+                                  AstNode *exp) {
+  if (list->count == list->cap) {
+    size_t new_cap = list->cap ? list->cap * 2 : 4;
+    PowerFactor *items = realloc(list->items, new_cap * sizeof(PowerFactor));
+    if (!items)
+      return 0;
+    list->items = items;
+    list->cap = new_cap;
+  }
+
+  list->items[list->count].base = base;
+  list->items[list->count].exp = exp;
+  list->count++;
+  return 1;
+}
+
+static void power_factor_list_free(PowerFactorList *list) {
+  if (!list)
+    return;
+  for (size_t i = 0; i < list->count; i++) {
+    ast_free(list->items[i].base);
+    ast_free(list->items[i].exp);
+  }
+  free(list->items);
+  list->items = NULL;
+  list->count = 0;
+  list->cap = 0;
+}
+
+static int flatten_mul_factors(const AstNode *node, Complex *coeff,
+                               PowerFactorList *factors) {
   if (!node)
     return 1;
 
@@ -267,15 +308,20 @@ static int flatten_mul_constants(const AstNode *node, Complex *coeff,
 
   if (node->type == AST_UNARY_NEG) {
     *coeff = c_neg(*coeff);
-    return flatten_mul_constants(node->as.unary.operand, coeff, factors);
+    return flatten_mul_factors(node->as.unary.operand, coeff, factors);
   }
 
   if (node->type == AST_BINOP && node->as.binop.op == OP_MUL) {
-    return flatten_mul_constants(node->as.binop.left, coeff, factors) &&
-           flatten_mul_constants(node->as.binop.right, coeff, factors);
+    return flatten_mul_factors(node->as.binop.left, coeff, factors) &&
+           flatten_mul_factors(node->as.binop.right, coeff, factors);
   }
 
-  return node_list_push(factors, ast_clone(node));
+  if (node->type == AST_BINOP && node->as.binop.op == OP_POW) {
+    return power_factor_list_push(factors, ast_clone(node->as.binop.left),
+                                  ast_clone(node->as.binop.right));
+  }
+
+  return power_factor_list_push(factors, ast_clone(node), ast_number(1));
 }
 
 static AstNode *build_mul_chain(Complex coeff, NodeList *factors) {
@@ -302,39 +348,111 @@ static AstNode *build_mul_chain(Complex coeff, NodeList *factors) {
   return result;
 }
 
-static AstNode *normalize_mul_constants(const AstNode *node) {
+static AstNode *build_factor_node(PowerFactor *factor) {
+  AstNode *base = factor->base;
+  AstNode *exp = factor->exp;
+
+  factor->base = NULL;
+  factor->exp = NULL;
+
+  if (is_number(exp, 0)) {
+    ast_free(base);
+    ast_free(exp);
+    return ast_number(1);
+  }
+
+  if (is_number(exp, 1)) {
+    ast_free(exp);
+    return base;
+  }
+
+  return ast_binop(OP_POW, base, exp);
+}
+
+static AstNode *normalize_mul_factors(const AstNode *node) {
   Complex coeff = c_real(1.0);
-  NodeList factors = {0};
+  PowerFactorList factors = {0};
+  NodeList nodes = {0};
   AstNode *result = NULL;
 
-  if (!flatten_mul_constants(node, &coeff, &factors)) {
-    node_list_free(&factors);
+  if (!flatten_mul_factors(node, &coeff, &factors)) {
+    power_factor_list_free(&factors);
     return NULL;
   }
 
-  result = build_mul_chain(coeff, &factors);
-  node_list_free(&factors);
+  for (size_t i = 0; i < factors.count; i++) {
+    if (!factors.items[i].base)
+      continue;
+    for (size_t j = i + 1; j < factors.count; j++) {
+      AstNode *exp = NULL;
+      if (!factors.items[j].base)
+        continue;
+      if (!ast_equal(factors.items[i].base, factors.items[j].base))
+        continue;
+
+      exp = sym_simplify(
+          ast_binop(OP_ADD, factors.items[i].exp, factors.items[j].exp));
+      factors.items[i].exp = exp;
+      factors.items[j].exp = NULL;
+      ast_free(factors.items[j].base);
+      factors.items[j].base = NULL;
+    }
+  }
+
+  for (size_t i = 0; i < factors.count; i++) {
+    AstNode *factor_node = NULL;
+    if (!factors.items[i].base)
+      continue;
+    factor_node = build_factor_node(&factors.items[i]);
+    if (!is_number(factor_node, 1) || nodes.count == 0) {
+      if (!node_list_push(&nodes, factor_node)) {
+        ast_free(factor_node);
+        node_list_free(&nodes);
+        power_factor_list_free(&factors);
+        return NULL;
+      }
+    } else {
+      ast_free(factor_node);
+    }
+  }
+
+  result = build_mul_chain(coeff, &nodes);
+  node_list_free(&nodes);
+  power_factor_list_free(&factors);
   return result;
 }
 
 static int extract_coeff_and_base(const AstNode *node, Complex *coeff,
                                   AstNode **base) {
-  NodeList factors = {0};
+  AstNode *normalized = NULL;
 
   *coeff = c_real(1.0);
   *base = NULL;
 
-  if (!flatten_mul_constants(node, coeff, &factors)) {
-    node_list_free(&factors);
+  normalized = normalize_mul_factors(node);
+  if (!normalized)
     return 0;
+
+  if (normalized->type == AST_NUMBER) {
+    *coeff = normalized->as.number;
+    ast_free(normalized);
+    return 1;
   }
 
-  *base = build_mul_chain(c_real(1.0), &factors);
-  if (*base && is_number(*base, 1) && factors.count == 0) {
+  if (normalized->type == AST_BINOP && normalized->as.binop.op == OP_MUL &&
+      normalized->as.binop.left->type == AST_NUMBER) {
+    *coeff = normalized->as.binop.left->as.number;
+    *base = ast_clone(normalized->as.binop.right);
+  } else {
+    *base = ast_clone(normalized);
+  }
+
+  if (*base && is_number(*base, 1)) {
     ast_free(*base);
     *base = NULL;
   }
-  node_list_free(&factors);
+
+  ast_free(normalized);
   return 1;
 }
 
@@ -737,10 +855,8 @@ AstNode *sym_simplify(AstNode *node) {
       return sym_simplify(ast_binop(OP_SUB, ast_binop(OP_MUL, c1, a),
                                     ast_binop(OP_MUL, c2, b)));
     }
-    if ((L->type == AST_BINOP && L->as.binop.op == OP_MUL) ||
-        (R->type == AST_BINOP && R->as.binop.op == OP_MUL) || is_num(L) ||
-        is_num(R)) {
-      AstNode *normalized = normalize_mul_constants(node);
+    {
+      AstNode *normalized = normalize_mul_factors(node);
       if (normalized && !ast_equal(normalized, node)) {
         ast_free(node);
         return sym_simplify(normalized);

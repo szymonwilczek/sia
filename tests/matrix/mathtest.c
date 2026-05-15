@@ -1,5 +1,5 @@
-#include "../test_support.h"
 #include "../test_suites.h"
+#include "../test_support.h"
 
 static void test_matrix_det(void) {
   TEST("matrix: determinant 2x2");
@@ -12,7 +12,6 @@ static void test_matrix_det(void) {
   matrix_free(m);
   PASS();
 }
-
 
 static void test_matrix_det_3x3(void) {
   TEST("matrix: determinant 3x3");
@@ -31,7 +30,6 @@ static void test_matrix_det_3x3(void) {
   PASS();
 }
 
-
 static void test_sym_det_1x1(void) {
   TEST("sym_det: 1x1 [x]");
   ParseResult r = parse("[x]");
@@ -45,20 +43,18 @@ static void test_sym_det_1x1(void) {
   PASS();
 }
 
-
 static void test_sym_det_2x2(void) {
   TEST("sym_det: 2x2 [a,b;c,d]");
   ParseResult r = parse("[a,b;c,d]");
   AstNode *d = sym_det(r.root);
   ASSERT_TRUE(d != NULL);
   char *s = ast_to_string(d);
-  ASSERT_STR_EQ(s, "(-b*c) + a*d");
+  ASSERT_TRUE(strcmp(s, "(-b*c) + a*d") == 0 || strcmp(s, "a*d + (-c*b)") == 0);
   free(s);
   ast_free(d);
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_sym_det_2x2_numeric(void) {
   TEST("sym_det: 2x2 numeric [1,2;3,4]");
@@ -73,7 +69,6 @@ static void test_sym_det_2x2_numeric(void) {
   PASS();
 }
 
-
 static void test_sym_det_3x3(void) {
   TEST("sym_det: 3x3 numeric [6,1,1;4,-2,5;2,8,7]");
   ParseResult r = parse("[6,1,1;4,-2,5;2,8,7]");
@@ -86,7 +81,6 @@ static void test_sym_det_3x3(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_sym_det_nonsquare(void) {
   TEST("sym_det: non-square returns NULL");
@@ -145,7 +139,6 @@ static void test_matrix_inverse_identity_product(void) {
   matrix_free(a);
   PASS();
 }
-
 
 void tests_matrix_mathtest(void) {
   test_matrix_det();

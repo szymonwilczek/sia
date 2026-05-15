@@ -144,6 +144,18 @@ static void test_simplify_constant_hoisting(void) {
   PASS();
 }
 
+static void test_simplify_power_grouping(void) {
+  TEST("simplify: x*y*x^2 -> x^3*y");
+  ParseResult r = parse("x*y*x^2");
+  AstNode *s = sym_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "x^3*y");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_simplify_mul_reciprocal(void) {
   TEST("simplify: x * (1/x) -> 1");
   ParseResult r = parse("x * (1/x)");
@@ -247,6 +259,7 @@ void tests_simplification_functional(void) {
   test_simplify_mul_neg_one();
   test_simplify_coeff_merge();
   test_simplify_constant_hoisting();
+  test_simplify_power_grouping();
   test_simplify_mul_reciprocal();
   test_simplify_cancel_div();
   test_simplify_exp_ln();
