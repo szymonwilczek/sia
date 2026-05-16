@@ -3,6 +3,7 @@ CODENAME  := "Infinite Ito"
 
 CC      ?= gcc
 CFLAGS  := -std=c11 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
+           -DSIA_VERSION='"$(VERSION)"' \
            -Wall -Wextra -Wpedantic -Werror \
            -Wshadow -Wstrict-prototypes -Wmissing-prototypes \
            -Wno-unused-parameter -O2 -g
