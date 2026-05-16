@@ -739,6 +739,118 @@ static void test_int_definite(void) {
   PASS();
 }
 
+static void test_laplace_constant(void) {
+  TEST("laplace: L{1} = s^-1");
+  ParseResult r = parse("1");
+  AstNode *result = sym_laplace(r.root, "t", "s");
+  ASSERT_TRUE(result != NULL);
+  result = sym_simplify(result);
+  char *str = ast_to_string(result);
+  ASSERT_STR_EQ(str, "s^-1");
+  free(str);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_laplace_sin(void) {
+  TEST("laplace: L{sin(t)} = (1+s^2)^-1");
+  ParseResult r = parse("sin(t)");
+  AstNode *result = sym_laplace(r.root, "t", "s");
+  ASSERT_TRUE(result != NULL);
+  result = sym_full_simplify(result);
+  char *str = ast_to_string(result);
+  ASSERT_STR_EQ(str, "(1 + s^2)^-1");
+  free(str);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_laplace_cos(void) {
+  TEST("laplace: L{cos(t)} = s*(1+s^2)^-1");
+  ParseResult r = parse("cos(t)");
+  AstNode *result = sym_laplace(r.root, "t", "s");
+  ASSERT_TRUE(result != NULL);
+  result = sym_full_simplify(result);
+  char *str = ast_to_string(result);
+  ASSERT_STR_EQ(str, "s*(1 + s^2)^-1");
+  free(str);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_laplace_exp(void) {
+  TEST("laplace: L{exp(-2*t)} = (2+s)^-1");
+  ParseResult r = parse("exp(-2*t)");
+  AstNode *result = sym_laplace(r.root, "t", "s");
+  ASSERT_TRUE(result != NULL);
+  result = sym_full_simplify(result);
+  char *str = ast_to_string(result);
+  ASSERT_STR_EQ(str, "(2 + s)^-1");
+  free(str);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_laplace_t_power(void) {
+  TEST("laplace: L{t^3} = 6*s^-4");
+  ParseResult r = parse("t^3");
+  AstNode *result = sym_laplace(r.root, "t", "s");
+  ASSERT_TRUE(result != NULL);
+  result = sym_simplify(result);
+  char *str = ast_to_string(result);
+  ASSERT_STR_EQ(str, "6*s^-4");
+  free(str);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_laplace_frequency_shift(void) {
+  TEST("laplace: L{exp(-t)*sin(t)} = (2+2*s+s^2)^-1");
+  ParseResult r = parse("exp(-t)*sin(t)");
+  AstNode *result = sym_laplace(r.root, "t", "s");
+  ASSERT_TRUE(result != NULL);
+  result = sym_full_simplify(result);
+  char *str = ast_to_string(result);
+  ASSERT_STR_EQ(str, "(2 + 2*s + s^2)^-1");
+  free(str);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_laplace_t_times_f(void) {
+  TEST("laplace: L{t*sin(t)} = 2*s*(1+s^2)^-2");
+  ParseResult r = parse("t*sin(t)");
+  AstNode *result = sym_laplace(r.root, "t", "s");
+  ASSERT_TRUE(result != NULL);
+  result = sym_full_simplify(result);
+  char *str = ast_to_string(result);
+  ASSERT_STR_EQ(str, "2*s*(1 + s^2)^-2");
+  free(str);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_laplace_linearity(void) {
+  TEST("laplace: L{2*sin(t)+3*cos(t)} = (2+3*s)*(1+s^2)^-1");
+  ParseResult r = parse("2*sin(t) + 3*cos(t)");
+  AstNode *result = sym_laplace(r.root, "t", "s");
+  ASSERT_TRUE(result != NULL);
+  result = sym_full_simplify(result);
+  char *str = ast_to_string(result);
+  ASSERT_STR_EQ(str, "(2 + 3*s)*(1 + s^2)^-1");
+  free(str);
+  ast_free(result);
+  parse_result_free(&r);
+  PASS();
+}
+
 void tests_calculus_functional(void) {
   test_diff_constant();
   test_diff_variable();
@@ -784,4 +896,12 @@ void tests_calculus_functional(void) {
   test_integrate_by_parts_x2_exp();
   test_integrate_by_parts_recurring_exp_sin();
   test_int_definite();
+  test_laplace_constant();
+  test_laplace_sin();
+  test_laplace_cos();
+  test_laplace_exp();
+  test_laplace_t_power();
+  test_laplace_frequency_shift();
+  test_laplace_t_times_f();
+  test_laplace_linearity();
 }

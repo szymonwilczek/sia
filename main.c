@@ -885,6 +885,31 @@ static int process_input(const char *input, int batch_mode) {
       return result ? 0 : 1;
     }
 
+    if (strcmp(pr.root->as.call.name, "laplace") == 0 &&
+        pr.root->as.call.nargs == 3 &&
+        pr.root->as.call.args[1]->type == AST_VARIABLE &&
+        pr.root->as.call.args[2]->type == AST_VARIABLE) {
+
+      AstNode *expr =
+          substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
+      const char *t_var = pr.root->as.call.args[1]->as.variable;
+      const char *s_var = pr.root->as.call.args[2]->as.variable;
+
+      AstNode *result = sym_laplace(expr, t_var, s_var);
+      ast_free(expr);
+      if (result) {
+        result = sym_full_simplify(result);
+        char *s = ast_to_string(result);
+        output_result(result, s, batch_mode);
+        free(s);
+        ast_free(result);
+      } else {
+        print_error("cannot compute Laplace transform");
+      }
+      parse_result_free(&pr);
+      return result ? 0 : 1;
+    }
+
     if (strcmp(pr.root->as.call.name, "det") == 0 &&
         pr.root->as.call.nargs == 1) {
       AstNode *arg =
