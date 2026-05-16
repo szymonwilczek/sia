@@ -17,6 +17,44 @@ static int is_laplace_call(const AstNode *n) {
          n->as.call.args[2]->type == AST_VARIABLE;
 }
 
+static AstNode *make_ln(AstNode *value) {
+  return ast_func_call("ln", 2, (AstNode *[]){value}, 1);
+}
+
+static AstNode *make_log(AstNode *value, const AstNode *base) {
+  return ast_func_call("log", 3, (AstNode *[]){value, ast_clone(base)}, 2);
+}
+
+static int log_call_parts(const AstNode *node, const AstNode **value,
+                          const AstNode **base) {
+  LogKind kind = log_kind(node);
+  if (kind == LOG_KIND_LN) {
+    *value = node->as.call.args[0];
+    *base = NULL;
+    return 1;
+  }
+  if (kind == LOG_KIND_GENERIC) {
+    *value = node->as.call.args[0];
+    *base = node->as.call.args[1];
+    return 1;
+  }
+  return 0;
+}
+
+static int same_log_base(const AstNode *left_base, const AstNode *right_base) {
+  if (!left_base && !right_base)
+    return 1;
+  if (!left_base || !right_base)
+    return 0;
+  return ast_equal(left_base, right_base);
+}
+
+static AstNode *make_log_like(AstNode *value, const AstNode *base) {
+  if (!base)
+    return make_ln(value);
+  return make_log(value, base);
+}
+
 static int is_nonnegative_integer_node(const AstNode *n, long long *out) {
   double rounded = 0.0;
 
@@ -619,6 +657,16 @@ AstNode *sym_simplify(AstNode *node) {
     }
     if (log_kind(node) != LOG_KIND_NONE)
       return log_simplify_call(node);
+    if (is_call1(node, "exp") && node->as.call.args[0]->type == AST_BINOP &&
+        node->as.call.args[0]->as.binop.op == OP_ADD) {
+      AstNode *sum = node->as.call.args[0];
+      AstNode *left = ast_func_call(
+          "exp", 3, (AstNode *[]){ast_clone(sum->as.binop.left)}, 1);
+      AstNode *right = ast_func_call(
+          "exp", 3, (AstNode *[]){ast_clone(sum->as.binop.right)}, 1);
+      ast_free(node);
+      return sym_simplify(ast_binop(OP_MUL, left, right));
+    }
     if (node->as.call.nargs == 1) {
       const AstNode *inner = NULL;
       int sign = 0;
@@ -897,6 +945,20 @@ AstNode *sym_simplify(AstNode *node) {
       ast_free(node);
       return R;
     }
+    {
+      const AstNode *lv = NULL;
+      const AstNode *lb = NULL;
+      const AstNode *rv = NULL;
+      const AstNode *rb = NULL;
+      if (log_call_parts(L, &lv, &lb) && log_call_parts(R, &rv, &rb) &&
+          same_log_base(lb, rb) && sia_known_positive(lv) &&
+          sia_known_positive(rv) &&
+          (!lb || (sia_known_positive(lb) && !is_number(lb, 1)))) {
+        AstNode *value = ast_binop(OP_MUL, ast_clone(lv), ast_clone(rv));
+        ast_free(node);
+        return make_log_like(sym_simplify(value), lb);
+      }
+    }
     /* x + x -> 2*x */
     if (ast_equal(L, R)) {
       node->as.binop.left = NULL;
@@ -1051,6 +1113,23 @@ AstNode *sym_simplify(AstNode *node) {
       node->as.binop.right = NULL;
       ast_free(node);
       return sym_simplify(ast_unary_neg(R));
+    }
+    {
+      const AstNode *value = NULL;
+      const AstNode *base = NULL;
+      AstNode *coeff = NULL;
+      if (is_num(L) && log_call_parts(R, &value, &base)) {
+        coeff = L;
+      } else if (is_num(R) && log_call_parts(L, &value, &base)) {
+        coeff = R;
+      }
+      if (coeff && sia_known_positive(value) &&
+          (!base || (sia_known_positive(base) && !is_number(base, 1)))) {
+        AstNode *powered =
+            ast_binop(OP_POW, ast_clone(value), ast_clone(coeff));
+        ast_free(node);
+        return make_log_like(sym_simplify(powered), base);
+      }
     }
     /* A * (-B) -> -(A * B) */
     if (R->type == AST_UNARY_NEG) {
@@ -2315,6 +2394,35 @@ AstNode *sym_expand(AstNode *node) {
     AstNode *c = ast_func_call(node->as.call.name, strlen(node->as.call.name),
                                args, node->as.call.nargs);
     free(args);
+    if (log_kind(c) == LOG_KIND_LN) {
+      AstNode *value = c->as.call.args[0];
+      if (value->type == AST_BINOP && value->as.binop.op == OP_MUL &&
+          sia_known_positive(value->as.binop.left) &&
+          sia_known_positive(value->as.binop.right)) {
+        AstNode *left = make_ln(ast_clone(value->as.binop.left));
+        AstNode *right = make_ln(ast_clone(value->as.binop.right));
+        ast_free(c);
+        return sym_simplify(ast_binop(OP_ADD, left, right));
+      }
+      if (value->type == AST_BINOP && value->as.binop.op == OP_POW &&
+          sia_known_positive(value->as.binop.left)) {
+        AstNode *power = ast_clone(value->as.binop.right);
+        AstNode *ln_base = make_ln(ast_clone(value->as.binop.left));
+        ast_free(c);
+        return sym_simplify(ast_binop(OP_MUL, power, ln_base));
+      }
+    } else if (log_kind(c) == LOG_KIND_GENERIC) {
+      AstNode *value = c->as.call.args[0];
+      AstNode *base = c->as.call.args[1];
+      if (value->type == AST_BINOP && value->as.binop.op == OP_POW &&
+          sia_known_positive(value->as.binop.left) &&
+          sia_known_positive(base) && !is_number(base, 1)) {
+        AstNode *power = ast_clone(value->as.binop.right);
+        AstNode *log_base = make_log(ast_clone(value->as.binop.left), base);
+        ast_free(c);
+        return sym_simplify(ast_binop(OP_MUL, power, log_base));
+      }
+    }
     return c;
   }
   case AST_LIMIT:

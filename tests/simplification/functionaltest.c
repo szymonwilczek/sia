@@ -247,6 +247,60 @@ static void test_simplify_sqrt_power_domain_guard(void) {
   PASS();
 }
 
+static void test_simplify_log_rules_with_domains(void) {
+  TEST("simplify: logarithm rules require positive domains");
+
+  ParseResult r1 = parse("ln(x*y)");
+  AstNode *e1 = sym_expand(r1.root);
+  char *s1 = ast_to_string(e1);
+  ASSERT_STR_EQ(s1, "ln(x*y)");
+  free(s1);
+  ast_free(e1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("ln(exp(x)*2)");
+  AstNode *e2 = sym_expand(r2.root);
+  char *s2 = ast_to_string(e2);
+  ASSERT_TRUE(strcmp(s2, "x + ln(2)") == 0 || strcmp(s2, "ln(2) + x") == 0);
+  free(s2);
+  ast_free(e2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("log(2^x, 2)");
+  AstNode *s3 = sym_simplify(ast_clone(r3.root));
+  ASSERT_EQ(s3->type, AST_VARIABLE);
+  ASSERT_STR_EQ(s3->as.variable, "x");
+  ast_free(s3);
+  parse_result_free(&r3);
+
+  ParseResult r4 = parse("ln(2)+ln(3)");
+  AstNode *s4 = sym_simplify(ast_clone(r4.root));
+  char *str4 = ast_to_string(s4);
+  ASSERT_STR_EQ(str4, "ln(6)");
+  free(str4);
+  ast_free(s4);
+  parse_result_free(&r4);
+
+  ParseResult r5 = parse("2*ln(3)");
+  AstNode *s5 = sym_simplify(ast_clone(r5.root));
+  char *str5 = ast_to_string(s5);
+  ASSERT_STR_EQ(str5, "ln(9)");
+  free(str5);
+  ast_free(s5);
+  parse_result_free(&r5);
+
+  ParseResult r6 = parse("exp(x+y)");
+  AstNode *s6 = sym_simplify(ast_clone(r6.root));
+  char *str6 = ast_to_string(s6);
+  ASSERT_TRUE(strcmp(str6, "exp(x)*exp(y)") == 0 ||
+              strcmp(str6, "exp(y)*exp(x)") == 0);
+  free(str6);
+  ast_free(s6);
+  parse_result_free(&r6);
+
+  PASS();
+}
+
 static void test_simplify_elementary_functions(void) {
   TEST("simplify: abs(-16), sqrt(49), log(1000, 10), log(8, 2)");
 
@@ -418,6 +472,7 @@ void tests_simplification_functional(void) {
   test_simplify_cancel_div();
   test_simplify_exp_ln();
   test_simplify_sqrt_power_domain_guard();
+  test_simplify_log_rules_with_domains();
   test_simplify_elementary_functions();
   test_simplify_distributive();
   test_full_simplify_distribution();

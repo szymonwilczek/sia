@@ -83,6 +83,12 @@ SiaSign sia_known_sign(const AstNode *expr) {
   case AST_INFINITY:
     return expr->as.infinity.sign > 0 ? SIA_SIGN_POSITIVE : SIA_SIGN_NEGATIVE;
 
+  case AST_VARIABLE:
+    if (strcmp(expr->as.variable, "e") == 0 ||
+        strcmp(expr->as.variable, "pi") == 0)
+      return SIA_SIGN_POSITIVE;
+    return SIA_SIGN_UNKNOWN;
+
   case AST_UNARY_NEG:
     return negate_sign(sia_known_sign(expr->as.unary.operand));
 
@@ -155,7 +161,6 @@ SiaSign sia_known_sign(const AstNode *expr) {
     }
     return SIA_SIGN_UNKNOWN;
 
-  case AST_VARIABLE:
   case AST_LIMIT:
   case AST_MATRIX:
   case AST_EQ:

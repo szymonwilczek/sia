@@ -1,4 +1,5 @@
 #include "sia/logarithm.h"
+#include "sia/assumptions.h"
 #include "sia/symbolic.h"
 #include <math.h>
 #include <stdlib.h>
@@ -58,6 +59,18 @@ static int ast_equal(const AstNode *a, const AstNode *b) {
     return 1;
   }
   return 0;
+}
+
+static int valid_log_base(const AstNode *base) {
+  return base && sia_known_positive(base) && !is_number(base, 1.0);
+}
+
+static AstNode *build_ln(AstNode *value) {
+  return ast_func_call("ln", 2, (AstNode *[]){value}, 1);
+}
+
+static AstNode *build_log(AstNode *value, const AstNode *base) {
+  return ast_func_call("log", 3, (AstNode *[]){value, ast_clone(base)}, 2);
 }
 
 LogKind log_kind(const AstNode *node) {
@@ -135,9 +148,17 @@ AstNode *log_simplify_call(AstNode *node) {
     return node;
 
   if (kind == LOG_KIND_LN) {
-    if (is_number(node->as.call.args[0], 1.0)) {
+    AstNode *value = node->as.call.args[0];
+    if (is_number(value, 1.0)) {
       ast_free(node);
       return ast_number(0);
+    }
+    if (value->type == AST_BINOP && value->as.binop.op == OP_POW &&
+        sia_known_positive(value->as.binop.left)) {
+      AstNode *power = ast_clone(value->as.binop.right);
+      AstNode *ln_base = build_ln(ast_clone(value->as.binop.left));
+      ast_free(node);
+      return sym_simplify(ast_binop(OP_MUL, power, ln_base));
     }
     return node;
   }
@@ -186,6 +207,16 @@ AstNode *log_simplify_call(AstNode *node) {
       ast_free(canonical);
       return ast_number_complex(result);
     }
+  }
+
+  if (value->type == AST_BINOP && value->as.binop.op == OP_POW &&
+      sia_known_positive(value->as.binop.left) && valid_log_base(base)) {
+    AstNode *power = ast_clone(value->as.binop.right);
+    AstNode *log_base = build_log(ast_clone(value->as.binop.left), base);
+    canonical->as.call.args[0] = NULL;
+    canonical->as.call.args[1] = NULL;
+    ast_free(canonical);
+    return sym_simplify(ast_binop(OP_MUL, power, log_base));
   }
 
   return canonical;
