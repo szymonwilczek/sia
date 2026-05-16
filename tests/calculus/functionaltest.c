@@ -950,6 +950,22 @@ static void test_limit_exponential_dominates_polynomial(void) {
   PASS();
 }
 
+static void test_limit_three_lhopital_steps(void) {
+  TEST("limit: repeated L'Hopital handles third-order zero");
+  ParseResult r = parse("(x - sin(x)) / x^3");
+  AstNode *target = ast_number(0);
+  AstNode *result = sym_limit(r.root, "x", target);
+  ASSERT_TRUE(result != NULL);
+  result = sym_full_simplify(result);
+  char *str = ast_to_string(result);
+  ASSERT_STR_EQ(str, "1/6");
+  free(str);
+  ast_free(result);
+  ast_free(target);
+  parse_result_free(&r);
+  PASS();
+}
+
 void tests_calculus_functional(void) {
   test_diff_constant();
   test_diff_variable();
@@ -1010,4 +1026,5 @@ void tests_calculus_functional(void) {
   test_limit_infinity_over_infinity();
   test_limit_nonzero_over_zero();
   test_limit_exponential_dominates_polynomial();
+  test_limit_three_lhopital_steps();
 }

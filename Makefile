@@ -1,5 +1,5 @@
-VERSION   := 0.9.2-5
-CODENAME  := "Jordan's Jewel"
+VERSION   := 0.9.2-6
+CODENAME  := Jordan's Jewel
 
 CC      ?= gcc
 CFLAGS  := -std=c11 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
