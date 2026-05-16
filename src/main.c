@@ -1014,7 +1014,8 @@ static int process_input(const char *input, int batch_mode) {
       ast_free(expr);
 
       if (sr.ok) {
-        if (sr.count == 0) {
+        size_t total = sr.count + sr.symbolic_count;
+        if (total == 0) {
           if (batch_mode)
             printf("[]");
           else {
@@ -1022,17 +1023,32 @@ static int process_input(const char *input, int batch_mode) {
             putchar('\n');
           }
         }
+        size_t emitted = 0;
         for (size_t i = 0; i < sr.count; i++) {
           char buf[64];
           format_number(buf, sizeof buf, sr.roots[i]);
-          char out[128];
+          char out[256];
           snprintf(out, sizeof out, "%s = %s", var, buf);
           if (batch_mode)
-            printf("%s%s", out, i + 1 < sr.count ? "\n" : "");
+            printf("%s%s", out, emitted + 1 < total ? "\n" : "");
           else {
             print_bold(out);
             putchar('\n');
           }
+          emitted++;
+        }
+        for (size_t i = 0; i < sr.symbolic_count; i++) {
+          char *expr_str = ast_to_string(sr.symbolic_roots[i]);
+          char out[512];
+          snprintf(out, sizeof out, "%s = %s", var, expr_str ? expr_str : "?");
+          free(expr_str);
+          if (batch_mode)
+            printf("%s%s", out, emitted + 1 < total ? "\n" : "");
+          else {
+            print_bold(out);
+            putchar('\n');
+          }
+          emitted++;
         }
       } else {
         print_error(sr.error);

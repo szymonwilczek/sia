@@ -7,6 +7,8 @@
 typedef struct {
   Complex *roots;
   size_t count;
+  AstNode **symbolic_roots;
+  size_t symbolic_count;
   int ok;
   char *error;
 } SolveResult;

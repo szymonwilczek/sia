@@ -168,16 +168,67 @@ static void test_solver_equation_backward_compat(void) {
   PASS();
 }
 
-static void test_solver_symbolic_coeffs_fail_clean(void) {
-  TEST("solve: free symbols return clean error (no Newton crash)");
+static void test_solver_symbolic_coeffs_return_symbolic(void) {
+  TEST("solve: free symbols yield symbolic root (no Newton crash)");
   ParseResult pr = parse("a*x - b = c*x + d");
   ASSERT_TRUE(pr.root != NULL);
 
   SymTab st;
   memset(&st, 0, sizeof(st));
   SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
-  ASSERT_TRUE(!r.ok);
-  ASSERT_TRUE(r.error != NULL);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 0);
+  ASSERT_EQ((int)r.symbolic_count, 1);
+  ASSERT_TRUE(r.symbolic_roots[0] != NULL);
+
+  /* Bind the free symbols and verify the symbolic root evaluates
+   * to the expected numeric value via the same AST. */
+  SymTab bound;
+  symtab_init(&bound);
+  symtab_set(&bound, "a", c_real(3));
+  symtab_set(&bound, "b", c_real(1));
+  symtab_set(&bound, "c", c_real(1));
+  symtab_set(&bound, "d", c_real(5));
+  EvalResult er = eval(r.symbolic_roots[0], &bound);
+  ASSERT_TRUE(er.ok);
+  ASSERT_CNEAR(er.value, c_real(3.0), 1e-9);
+  eval_result_free(&er);
+  symtab_free(&bound);
+
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solver_symbolic_quadratic(void) {
+  TEST("solve: a*x^2 + b*x + c = 0 returns two symbolic roots");
+  ParseResult pr = parse("a*x^2 + b*x + c = 0");
+  ASSERT_TRUE(pr.root != NULL);
+
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.symbolic_count, 2);
+
+  /* Bind to a=1, b=-5, c=6 -> roots 2 and 3. */
+  SymTab bound;
+  symtab_init(&bound);
+  symtab_set(&bound, "a", c_real(1));
+  symtab_set(&bound, "b", c_real(-5));
+  symtab_set(&bound, "c", c_real(6));
+  double seen[2] = {0, 0};
+  for (size_t i = 0; i < 2; i++) {
+    EvalResult er = eval(r.symbolic_roots[i], &bound);
+    ASSERT_TRUE(er.ok);
+    seen[i] = er.value.re;
+    eval_result_free(&er);
+  }
+  symtab_free(&bound);
+  int has2 = fabs(seen[0] - 2.0) < 1e-9 || fabs(seen[1] - 2.0) < 1e-9;
+  int has3 = fabs(seen[0] - 3.0) < 1e-9 || fabs(seen[1] - 3.0) < 1e-9;
+  ASSERT_TRUE(has2);
+  ASSERT_TRUE(has3);
 
   solve_result_free(&r);
   parse_result_free(&pr);
@@ -251,7 +302,8 @@ void tests_solver_mathtest(void) {
   test_solver_rational_extraneous_root_filtered();
   test_solver_rational_valid_root_preserved();
   test_solver_equation_backward_compat();
-  test_solver_symbolic_coeffs_fail_clean();
+  test_solver_symbolic_coeffs_return_symbolic();
+  test_solver_symbolic_quadratic();
   test_solver_symbolic_coeffs_resolve_with_symtab();
   test_solver_nested_fraction_equation();
   test_solver_log_compound_argument();

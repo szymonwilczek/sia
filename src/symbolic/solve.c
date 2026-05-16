@@ -10,21 +10,26 @@
 #include <string.h>
 
 static SolveResult ok_roots(Complex *roots, size_t count) {
-  SolveResult r;
+  SolveResult r = {0};
   r.roots = count ? malloc(count * sizeof(Complex)) : NULL;
   if (count)
     memcpy(r.roots, roots, count * sizeof(Complex));
   r.count = count;
   r.ok = 1;
-  r.error = NULL;
+  return r;
+}
+
+static SolveResult ok_symbolic_single(AstNode *expr) {
+  SolveResult r = {0};
+  r.symbolic_roots = malloc(sizeof(AstNode *));
+  r.symbolic_roots[0] = expr;
+  r.symbolic_count = 1;
+  r.ok = 1;
   return r;
 }
 
 static SolveResult fail(const char *msg) {
-  SolveResult r;
-  r.roots = NULL;
-  r.count = 0;
-  r.ok = 0;
+  SolveResult r = {0};
   r.error = strdup(msg);
   return r;
 }
@@ -32,6 +37,13 @@ static SolveResult fail(const char *msg) {
 void solve_result_free(SolveResult *r) {
   free(r->roots);
   r->roots = NULL;
+  if (r->symbolic_roots) {
+    for (size_t i = 0; i < r->symbolic_count; i++)
+      ast_free(r->symbolic_roots[i]);
+    free(r->symbolic_roots);
+    r->symbolic_roots = NULL;
+  }
+  r->symbolic_count = 0;
   free(r->error);
   r->error = NULL;
   r->count = 0;
@@ -639,22 +651,31 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
     return result;
   }
 
-  /* Symbolic linear isolator for A(s)*x + B(s) = 0 where A, B may depend on
-   * free symbols other than `var`. f(0) gives B, f(1) - f(0) gives A; we
-   * verify linearity by checking f(2) - (2*A + B) simplifies to zero. If
-   * linear, return -B/A evaluated through the symtab — callers can bind
-   * the free symbols beforehand. */
+  /* Symbolic polynomial isolators: when extract_poly_coeffs cannot read the
+   * numeric coefficients (because A/B/C carry free symbols other than
+   * `var`), recover them via evaluation-point interpolation:
+   *   linear   A*x + B           -> B = f(0), A = f(1) - f(0)
+   *   quadratic A*x^2 + B*x + C  -> C = f(0),
+   *                                 A = (f(1) + f(-1))/2 - C,
+   *                                 B = (f(1) - f(-1))/2
+   * Each isolator verifies via an extra sample point and returns symbolic
+   * AST roots (eval'd to Complex when the symtab can supply numeric
+   * bindings, otherwise reported as ast_to_string-able expressions). */
   {
-    AstNode *zero = ast_number(0);
-    AstNode *one = ast_number(1);
-    AstNode *two = ast_number(2);
-    AstNode *f0 = sym_full_simplify(sym_subs(simplified, var, zero));
-    AstNode *f1 = sym_full_simplify(sym_subs(simplified, var, one));
-    AstNode *f2 = sym_full_simplify(sym_subs(simplified, var, two));
-    ast_free(zero);
-    ast_free(one);
-    ast_free(two);
+    AstNode *node_zero = ast_number(0);
+    AstNode *node_one = ast_number(1);
+    AstNode *node_mone = ast_number(-1);
+    AstNode *node_two = ast_number(2);
+    AstNode *f0 = sym_full_simplify(sym_subs(simplified, var, node_zero));
+    AstNode *f1 = sym_full_simplify(sym_subs(simplified, var, node_one));
+    AstNode *fm1 = sym_full_simplify(sym_subs(simplified, var, node_mone));
+    AstNode *f2 = sym_full_simplify(sym_subs(simplified, var, node_two));
+    ast_free(node_zero);
+    ast_free(node_one);
+    ast_free(node_mone);
+    ast_free(node_two);
 
+    /* ---- linear ---- */
     if (f0 && f1 && f2) {
       AstNode *A =
           sym_full_simplify(ast_binop(OP_SUB, ast_clone(f1), ast_clone(f0)));
@@ -664,7 +685,6 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
                     ast_clone(B)));
       AstNode *residual =
           sym_full_simplify(ast_binop(OP_SUB, ast_clone(f2), predicted_f2));
-
       int is_linear = residual && residual->type == AST_NUMBER &&
                       c_is_zero(residual->as.number);
       ast_free(residual);
@@ -672,32 +692,105 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
       if (is_linear && !is_zero_node(A)) {
         AstNode *root_expr = sym_full_simplify(
             ast_binop(OP_DIV, ast_unary_neg(ast_clone(B)), ast_clone(A)));
-        EvalResult er = eval(root_expr, st);
-        ast_free(root_expr);
         ast_free(A);
         ast_free(B);
         ast_free(f0);
         ast_free(f1);
+        ast_free(fm1);
         ast_free(f2);
         ast_free(simplified);
+        EvalResult er = eval(root_expr, st);
         if (er.ok) {
+          ast_free(root_expr);
           SolveResult r = ok_roots(&er.value, 1);
           eval_result_free(&er);
           return r;
         }
-        char *msg = er.error ? strdup(er.error)
-                             : strdup("symbolic coefficients not bound; "
-                                      "assign values before solving");
         eval_result_free(&er);
-        SolveResult fr = fail(msg);
-        free(msg);
-        return fr;
+        return ok_symbolic_single(root_expr);
       }
       ast_free(A);
       ast_free(B);
     }
+
+    /* ---- quadratic ---- */
+    if (f0 && f1 && fm1 && f2) {
+      AstNode *sum =
+          sym_full_simplify(ast_binop(OP_ADD, ast_clone(f1), ast_clone(fm1)));
+      AstNode *A = sym_full_simplify(ast_binop(
+          OP_SUB, ast_binop(OP_DIV, sum, ast_number(2)), ast_clone(f0)));
+      AstNode *diff =
+          sym_full_simplify(ast_binop(OP_SUB, ast_clone(f1), ast_clone(fm1)));
+      AstNode *B = sym_full_simplify(ast_binop(OP_DIV, diff, ast_number(2)));
+      AstNode *C = ast_clone(f0);
+
+      /* verify with f(2) = 4A + 2B + C */
+      AstNode *predicted_f2 = sym_full_simplify(ast_binop(
+          OP_ADD,
+          ast_binop(OP_ADD, ast_binop(OP_MUL, ast_number(4), ast_clone(A)),
+                    ast_binop(OP_MUL, ast_number(2), ast_clone(B))),
+          ast_clone(C)));
+      AstNode *residual =
+          sym_full_simplify(ast_binop(OP_SUB, ast_clone(f2), predicted_f2));
+      int is_quad = residual && residual->type == AST_NUMBER &&
+                    c_is_zero(residual->as.number);
+      ast_free(residual);
+
+      if (is_quad && !is_zero_node(A)) {
+        /* discriminant = B^2 - 4AC */
+        AstNode *disc = sym_full_simplify(ast_binop(
+            OP_SUB, ast_binop(OP_POW, ast_clone(B), ast_number(2)),
+            ast_binop(OP_MUL, ast_binop(OP_MUL, ast_number(4), ast_clone(A)),
+                      ast_clone(C))));
+        AstNode *sqrt_disc =
+            ast_func_call("sqrt", 4, (AstNode *[]){ast_clone(disc)}, 1);
+        ast_free(disc);
+        AstNode *two_a =
+            sym_full_simplify(ast_binop(OP_MUL, ast_number(2), ast_clone(A)));
+        AstNode *neg_B = ast_unary_neg(ast_clone(B));
+        AstNode *root_plus = sym_full_simplify(ast_binop(
+            OP_DIV, ast_binop(OP_ADD, ast_clone(neg_B), ast_clone(sqrt_disc)),
+            ast_clone(two_a)));
+        AstNode *root_minus = sym_full_simplify(
+            ast_binop(OP_DIV, ast_binop(OP_SUB, neg_B, sqrt_disc), two_a));
+        ast_free(A);
+        ast_free(B);
+        ast_free(C);
+        ast_free(f0);
+        ast_free(f1);
+        ast_free(fm1);
+        ast_free(f2);
+        ast_free(simplified);
+
+        /* try eval — if both eval cleanly, return as numeric roots */
+        EvalResult er_p = eval(root_plus, st);
+        EvalResult er_m = eval(root_minus, st);
+        if (er_p.ok && er_m.ok) {
+          ast_free(root_plus);
+          ast_free(root_minus);
+          Complex pair[2] = {er_p.value, er_m.value};
+          SolveResult r = ok_roots(pair, 2);
+          eval_result_free(&er_p);
+          eval_result_free(&er_m);
+          return r;
+        }
+        eval_result_free(&er_p);
+        eval_result_free(&er_m);
+        SolveResult sr = {0};
+        sr.symbolic_roots = malloc(2 * sizeof(AstNode *));
+        sr.symbolic_roots[0] = root_plus;
+        sr.symbolic_roots[1] = root_minus;
+        sr.symbolic_count = 2;
+        sr.ok = 1;
+        return sr;
+      }
+      ast_free(A);
+      ast_free(B);
+      ast_free(C);
+    }
     ast_free(f0);
     ast_free(f1);
+    ast_free(fm1);
     ast_free(f2);
   }
 
