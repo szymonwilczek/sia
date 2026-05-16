@@ -207,8 +207,41 @@ static int has_zero_denominator(const AstNode *node) {
   return 0;
 }
 
+static int split_fraction(const AstNode *expr, AstNode **num, AstNode **den);
+
+static LimitStatus direct_fraction_substitution(const AstNode *expr,
+                                                const char *var,
+                                                const AstNode *target,
+                                                AstNode **out) {
+  AstNode *num = NULL;
+  AstNode *den = NULL;
+  if (!split_fraction(expr, &num, &den))
+    return LIMIT_UNSUPPORTED;
+
+  LimitClass num_class = classify_at(num, var, target);
+  LimitClass den_class = classify_at(den, var, target);
+  ast_free(num);
+  ast_free(den);
+
+  if ((num_class == LIMIT_CLASS_ZERO && den_class == LIMIT_CLASS_ZERO) ||
+      (num_class == LIMIT_CLASS_INF && den_class == LIMIT_CLASS_INF))
+    return LIMIT_INDETERMINATE;
+
+  if (num_class == LIMIT_CLASS_FINITE && den_class == LIMIT_CLASS_ZERO) {
+    *out = ast_variable("inf", 3);
+    return LIMIT_DIRECT_OK;
+  }
+
+  return LIMIT_UNSUPPORTED;
+}
+
 static LimitStatus direct_substitution(const AstNode *expr, const char *var,
                                        const AstNode *target, AstNode **out) {
+  LimitStatus fraction_status =
+      direct_fraction_substitution(expr, var, target, out);
+  if (fraction_status != LIMIT_UNSUPPORTED)
+    return fraction_status;
+
   AstNode *sub = sym_subs(expr, var, target);
   if (!sub)
     return LIMIT_UNSUPPORTED;
