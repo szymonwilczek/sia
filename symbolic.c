@@ -1515,6 +1515,273 @@ AstNode *sym_collect_terms(AstNode *expr) {
   return ast_canonicalize(res);
 }
 
+static AstNode *simplify_subexpressions(AstNode *node) {
+  if (!node)
+    return NULL;
+  switch (node->type) {
+  case AST_NUMBER:
+  case AST_VARIABLE:
+    return node;
+  case AST_MATRIX: {
+    size_t total = node->as.matrix.rows * node->as.matrix.cols;
+    for (size_t i = 0; i < total; i++)
+      node->as.matrix.elements[i] =
+          simplify_subexpressions(node->as.matrix.elements[i]);
+    return node;
+  }
+  case AST_UNARY_NEG:
+    node->as.unary.operand = simplify_subexpressions(node->as.unary.operand);
+    return node;
+  case AST_FUNC_CALL:
+    for (size_t i = 0; i < node->as.call.nargs; i++)
+      node->as.call.args[i] = simplify_subexpressions(node->as.call.args[i]);
+    return node;
+  case AST_BINOP:
+    break;
+  }
+  node->as.binop.left = simplify_subexpressions(node->as.binop.left);
+  node->as.binop.right = simplify_subexpressions(node->as.binop.right);
+
+  if (node->as.binop.op == OP_POW || node->as.binop.op == OP_MUL) {
+    AstNode *poly = ast_polynomial_canonicalize(node->as.binop.left);
+    if (poly) {
+      ast_free(node->as.binop.left);
+      node->as.binop.left = poly;
+    } else {
+      AstNode *coll = sym_collect_terms(node->as.binop.left);
+      if (coll) {
+        ast_free(node->as.binop.left);
+        node->as.binop.left = coll;
+      }
+    }
+    poly = ast_polynomial_canonicalize(node->as.binop.right);
+    if (poly) {
+      ast_free(node->as.binop.right);
+      node->as.binop.right = poly;
+    }
+  }
+  return node;
+}
+
+static AstNode *extract_numerator_excluding(const AstNode *term, Complex *coeff,
+                                            const AstNode *excl_base,
+                                            const AstNode *excl_exp) {
+  PowerFactorList factors = {0};
+  AstNode *result = NULL;
+  int excl_idx;
+
+  *coeff = c_real(1.0);
+  if (!flatten_mul_factors(term, coeff, &factors)) {
+    power_factor_list_free(&factors);
+    return NULL;
+  }
+  merge_like_factors(&factors);
+
+  excl_idx = find_power_factor(&factors, excl_base, excl_exp);
+
+  {
+    PowerFactorList numer = {0};
+    for (size_t f = 0; f < factors.count; f++) {
+      if ((int)f == excl_idx)
+        continue;
+      power_factor_list_push(&numer, ast_clone(factors.items[f].base),
+                             ast_clone(factors.items[f].exp));
+    }
+    if (numer.count == 0) {
+      result = ast_number(1);
+    } else {
+      NodeList nl = {0};
+      append_factor_nodes(&numer, &nl);
+      result = build_mul_chain(c_real(1.0), &nl);
+      node_list_free(&nl);
+    }
+    power_factor_list_free(&numer);
+  }
+
+  power_factor_list_free(&factors);
+  return result;
+}
+
+static AstNode *combine_common_denominators(AstNode *node) {
+  size_t cap = 16, count = 0;
+  int did_combine = 0;
+  AstNode **terms = malloc(cap * sizeof(AstNode *));
+  flatten_add(node, &terms, &count, &cap);
+
+  for (size_t i = 0; i < count; i++) {
+    if (!terms[i])
+      continue;
+    Complex coeff_i = c_real(1.0);
+    PowerFactorList factors_i = {0};
+    if (!flatten_mul_factors(terms[i], &coeff_i, &factors_i)) {
+      power_factor_list_free(&factors_i);
+      continue;
+    }
+    merge_like_factors(&factors_i);
+
+    AstNode *denom_base = NULL;
+    AstNode *denom_exp = NULL;
+    int denom_idx = -1;
+    for (size_t f = 0; f < factors_i.count; f++) {
+      if (factors_i.items[f].exp &&
+          factors_i.items[f].exp->type == AST_NUMBER &&
+          c_is_real(factors_i.items[f].exp->as.number) &&
+          factors_i.items[f].exp->as.number.re < 0) {
+        denom_base = factors_i.items[f].base;
+        denom_exp = factors_i.items[f].exp;
+        denom_idx = (int)f;
+        break;
+      }
+    }
+
+    if (denom_idx < 0) {
+      power_factor_list_free(&factors_i);
+      continue;
+    }
+
+    AstNode *numer_sum =
+        extract_numerator_excluding(terms[i], &coeff_i, denom_base, denom_exp);
+    if (!numer_sum) {
+      power_factor_list_free(&factors_i);
+      continue;
+    }
+    if (!c_is_one(coeff_i))
+      numer_sum = ast_binop(OP_MUL, ast_number_complex(coeff_i), numer_sum);
+
+    int any_combined = 0;
+    for (size_t j = i + 1; j < count; j++) {
+      if (!terms[j])
+        continue;
+      Complex coeff_j = c_real(1.0);
+      PowerFactorList factors_j = {0};
+      if (!flatten_mul_factors(terms[j], &coeff_j, &factors_j)) {
+        power_factor_list_free(&factors_j);
+        continue;
+      }
+      merge_like_factors(&factors_j);
+
+      int match = find_power_factor(&factors_j, denom_base, denom_exp);
+      if (match < 0) {
+        power_factor_list_free(&factors_j);
+        continue;
+      }
+
+      AstNode *numer_j = extract_numerator_excluding(terms[j], &coeff_j,
+                                                     denom_base, denom_exp);
+      if (!numer_j) {
+        power_factor_list_free(&factors_j);
+        continue;
+      }
+      if (!c_is_one(coeff_j))
+        numer_j = ast_binop(OP_MUL, ast_number_complex(coeff_j), numer_j);
+
+      numer_sum = ast_binop(OP_ADD, numer_sum, numer_j);
+      ast_free(terms[j]);
+      terms[j] = NULL;
+      any_combined = 1;
+      did_combine = 1;
+
+      power_factor_list_free(&factors_j);
+    }
+
+    if (any_combined) {
+      AstNode *denom_factor = clone_factor_node(denom_base, denom_exp);
+      ast_free(terms[i]);
+      terms[i] = ast_binop(OP_MUL, numer_sum, denom_factor);
+    } else {
+      ast_free(numer_sum);
+    }
+
+    power_factor_list_free(&factors_i);
+  }
+
+  if (!did_combine) {
+    for (size_t i = 0; i < count; i++)
+      ast_free(terms[i]);
+    free(terms);
+    return NULL;
+  }
+
+  AstNode *res = NULL;
+  for (size_t i = 0; i < count; i++) {
+    if (!terms[i])
+      continue;
+    res = res ? ast_binop(OP_ADD, res, terms[i]) : terms[i];
+  }
+  free(terms);
+  return res ? res : ast_number(0);
+}
+
+static AstNode *try_rational_reduce(AstNode *node) {
+  if (!node)
+    return NULL;
+
+  Complex coeff = c_real(1.0);
+  PowerFactorList factors = {0};
+  if (!flatten_mul_factors(node, &coeff, &factors)) {
+    power_factor_list_free(&factors);
+    return NULL;
+  }
+  merge_like_factors(&factors);
+
+  AstNode *numer_ast = NULL;
+  AstNode *denom_ast = NULL;
+
+  PowerFactorList numer_factors = {0};
+  PowerFactorList denom_factors = {0};
+
+  for (size_t i = 0; i < factors.count; i++) {
+    if (factors.items[i].exp && factors.items[i].exp->type == AST_NUMBER &&
+        c_is_real(factors.items[i].exp->as.number) &&
+        factors.items[i].exp->as.number.re < 0) {
+      double neg_exp = -factors.items[i].exp->as.number.re;
+      if (neg_exp == (int)neg_exp && neg_exp >= 1) {
+        AstNode *pos_exp = ast_number(neg_exp);
+        AstNode *base = ast_clone(factors.items[i].base);
+        if (neg_exp == 1.0) {
+          denom_ast = denom_ast ? ast_binop(OP_MUL, denom_ast, base) : base;
+        } else {
+          AstNode *raised = ast_binop(OP_POW, base, pos_exp);
+          denom_ast = denom_ast ? ast_binop(OP_MUL, denom_ast, raised) : raised;
+        }
+      } else {
+        power_factor_list_push(&numer_factors, ast_clone(factors.items[i].base),
+                               ast_clone(factors.items[i].exp));
+      }
+    } else {
+      power_factor_list_push(&numer_factors, ast_clone(factors.items[i].base),
+                             ast_clone(factors.items[i].exp));
+    }
+  }
+
+  if (!denom_ast) {
+    power_factor_list_free(&factors);
+    power_factor_list_free(&numer_factors);
+    power_factor_list_free(&denom_factors);
+    return NULL;
+  }
+
+  {
+    NodeList nl = {0};
+    append_factor_nodes(&numer_factors, &nl);
+    numer_ast = build_mul_chain(coeff, &nl);
+    node_list_free(&nl);
+  }
+
+  if (!numer_ast)
+    numer_ast = ast_number_complex(coeff);
+
+  AstNode *reduced = ast_poly_gcd_reduce(numer_ast, denom_ast);
+
+  ast_free(numer_ast);
+  ast_free(denom_ast);
+  power_factor_list_free(&factors);
+  power_factor_list_free(&numer_factors);
+  power_factor_list_free(&denom_factors);
+
+  return reduced;
+}
+
 static AstNode *sym_full_simplify_once(AstNode *node) {
   AstNode *expanded = NULL;
   AstNode *collected = NULL;
@@ -1529,6 +1796,8 @@ static AstNode *sym_full_simplify_once(AstNode *node) {
   ast_free(node);
   node = expanded;
 
+  node = simplify_subexpressions(node);
+
   node = ast_canonicalize(node);
 
   collected = sym_collect_terms(node);
@@ -1541,7 +1810,23 @@ static AstNode *sym_full_simplify_once(AstNode *node) {
     node = poly;
   }
 
-  return sym_simplify(node);
+  node = sym_simplify(node);
+
+  {
+    AstNode *combined = combine_common_denominators(node);
+    if (combined) {
+      ast_free(node);
+      node = combined;
+
+      AstNode *reduced = try_rational_reduce(node);
+      if (reduced) {
+        ast_free(node);
+        node = reduced;
+      }
+    }
+  }
+
+  return node;
 }
 
 AstNode *sym_full_simplify(AstNode *node) {
