@@ -552,6 +552,15 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
       return resolve_symbolic(expanded, st);
     }
 
+    /* factor(expr) */
+    if (strcmp(node->as.call.name, "factor") == 0 && node->as.call.nargs == 1) {
+      AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
+      expr = substitute_vars(expr, st);
+      AstNode *factored = sym_factor(expr);
+      ast_free(node);
+      return factored;
+    }
+
     /* other functions: resolve arguments */
     for (size_t i = 0; i < node->as.call.nargs; i++) {
       node->as.call.args[i] = resolve_symbolic(node->as.call.args[i], st);
@@ -846,6 +855,21 @@ static int process_input(const char *input, int batch_mode) {
     print_error(pr.error);
     parse_result_free(&pr);
     return 1;
+  }
+
+  if (pr.root->type == AST_FUNC_CALL &&
+      strcmp(pr.root->as.call.name, "factor") == 0 &&
+      pr.root->as.call.nargs == 1) {
+    AstNode *expr =
+        resolve_symbolic(ast_clone(pr.root->as.call.args[0]), &global_symtab);
+    expr = substitute_vars(expr, &global_symtab);
+    AstNode *factored = sym_factor(expr);
+    char *s = ast_to_string(factored);
+    output_result(factored, s, batch_mode);
+    free(s);
+    ast_free(factored);
+    parse_result_free(&pr);
+    return 0;
   }
 
   int top_level_limit = pr.root->type == AST_LIMIT;
@@ -1155,6 +1179,20 @@ static int process_input(const char *input, int batch_mode) {
       output_result(simplified, s, batch_mode);
       free(s);
       ast_free(simplified);
+      parse_result_free(&pr);
+      return 0;
+    }
+
+    if (strcmp(pr.root->as.call.name, "factor") == 0 &&
+        pr.root->as.call.nargs == 1) {
+
+      AstNode *expr =
+          substitute_vars(ast_clone(pr.root->as.call.args[0]), &global_symtab);
+      AstNode *factored = sym_factor(expr);
+      char *s = ast_to_string(factored);
+      output_result(factored, s, batch_mode);
+      free(s);
+      ast_free(factored);
       parse_result_free(&pr);
       return 0;
     }

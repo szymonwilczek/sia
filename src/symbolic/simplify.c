@@ -1617,6 +1617,174 @@ static AstNode *try_cancel_common_add_factor(AstNode **terms, size_t count) {
   return normalized;
 }
 
+static AstNode *square_factor_base(const AstNode *node) {
+  if (!node)
+    return NULL;
+
+  if (node->type == AST_BINOP && node->as.binop.op == OP_POW &&
+      is_number(node->as.binop.right, 2))
+    return ast_clone(node->as.binop.left);
+
+  if (node->type == AST_NUMBER && c_is_real(node->as.number) &&
+      node->as.number.re >= 0) {
+    Fraction frac;
+    if (c_real_fraction(node->as.number, &frac) && frac.num >= 0) {
+      long long sp = (long long)round(sqrt((double)frac.num));
+      long long sq = (long long)round(sqrt((double)frac.den));
+      if (sp * sp == frac.num && sq * sq == frac.den) {
+        return ast_number_complex(
+            c_from_fractions(fraction_make(sp, sq), fraction_make(0, 1)));
+      }
+    }
+  }
+
+  return NULL;
+}
+
+static AstNode *try_factor_difference_of_squares(const AstNode *node) {
+  if (!node || node->type != AST_BINOP || node->as.binop.op != OP_SUB)
+    return NULL;
+
+  AstNode *left = square_factor_base(node->as.binop.left);
+  AstNode *right = square_factor_base(node->as.binop.right);
+  if (!left || !right) {
+    ast_free(left);
+    ast_free(right);
+    return NULL;
+  }
+
+  AstNode *minus = ast_binop(OP_SUB, ast_clone(left), ast_clone(right));
+  AstNode *plus = ast_binop(OP_ADD, left, right);
+  return ast_binop(OP_MUL, minus, plus);
+}
+
+static int single_power_term(const AstNode *term, Complex *coeff,
+                             AstNode **base, long long *exp) {
+  PowerFactorList factors = {0};
+  size_t active = 0;
+  size_t active_idx = 0;
+
+  *coeff = c_real(1.0);
+  *base = NULL;
+  *exp = 0;
+
+  if (!flatten_mul_factors(term, coeff, &factors))
+    return 0;
+  merge_like_factors(&factors);
+
+  for (size_t i = 0; i < factors.count; i++) {
+    if (factors.items[i].base) {
+      active++;
+      active_idx = i;
+    }
+  }
+
+  if (active != 1 ||
+      !is_nonnegative_integer_node(factors.items[active_idx].exp, exp) ||
+      *exp == 0) {
+    power_factor_list_free(&factors);
+    return 0;
+  }
+
+  *base = ast_clone(factors.items[active_idx].base);
+  power_factor_list_free(&factors);
+  return 1;
+}
+
+static AstNode *build_power_residual(Complex coeff, const AstNode *base,
+                                     long long exp) {
+  AstNode *power = NULL;
+
+  if (exp == 0) {
+    power = ast_number(1);
+  } else if (exp == 1) {
+    power = ast_clone(base);
+  } else {
+    power = ast_binop(OP_POW, ast_clone(base), ast_number((double)exp));
+  }
+
+  if (c_is_one(coeff))
+    return power;
+  return ast_binop(OP_MUL, ast_number_complex(coeff), power);
+}
+
+static AstNode *try_factor_common_power_pair(const AstNode *node) {
+  if (!node || node->type != AST_BINOP || node->as.binop.op != OP_ADD)
+    return NULL;
+
+  Complex left_coeff;
+  Complex right_coeff;
+  AstNode *left_base = NULL;
+  AstNode *right_base = NULL;
+  long long left_exp = 0;
+  long long right_exp = 0;
+
+  if (!single_power_term(node->as.binop.left, &left_coeff, &left_base,
+                         &left_exp) ||
+      !single_power_term(node->as.binop.right, &right_coeff, &right_base,
+                         &right_exp) ||
+      !ast_equal(left_base, right_base)) {
+    ast_free(left_base);
+    ast_free(right_base);
+    return NULL;
+  }
+
+  long long common_exp = left_exp < right_exp ? left_exp : right_exp;
+  AstNode *common = common_exp == 1 ? ast_clone(left_base)
+                                    : ast_binop(OP_POW, ast_clone(left_base),
+                                                ast_number((double)common_exp));
+  AstNode *left_res =
+      build_power_residual(left_coeff, left_base, left_exp - common_exp);
+  AstNode *right_res =
+      build_power_residual(right_coeff, right_base, right_exp - common_exp);
+  AstNode *inner = ast_binop(OP_ADD, left_res, right_res);
+  ast_free(left_base);
+  ast_free(right_base);
+  return ast_binop(OP_MUL, common, inner);
+}
+
+AstNode *sym_factor(AstNode *node) {
+  if (!node)
+    return NULL;
+
+  node = sym_simplify(node);
+
+  {
+    AstNode *factored = try_factor_difference_of_squares(node);
+    if (factored) {
+      ast_free(node);
+      return factored;
+    }
+  }
+
+  {
+    AstNode *factored = try_factor_common_power_pair(node);
+    if (factored) {
+      ast_free(node);
+      return factored;
+    }
+  }
+
+  if (node->type == AST_BINOP && node->as.binop.op == OP_ADD) {
+    size_t cap = 16;
+    size_t count = 0;
+    AstNode **terms = malloc(cap * sizeof(AstNode *));
+    if (!terms)
+      return node;
+    flatten_add(node, &terms, &count, &cap);
+    AstNode *factored = try_cancel_common_add_factor(terms, count);
+    for (size_t i = 0; i < count; i++)
+      ast_free(terms[i]);
+    free(terms);
+    if (factored) {
+      ast_free(node);
+      return factored;
+    }
+  }
+
+  return node;
+}
+
 AstNode *sym_collect_terms(AstNode *expr) {
   if (!expr)
     return NULL;

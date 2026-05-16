@@ -301,6 +301,31 @@ static void test_simplify_log_rules_with_domains(void) {
   PASS();
 }
 
+static void test_factor_polynomials(void) {
+  TEST("factor: polynomial difference of squares and common factor");
+
+  ParseResult r1 = parse("x^2 - 1");
+  AstNode *f1 = sym_factor(ast_clone(r1.root));
+  char *s1 = ast_to_string(f1);
+  ASSERT_TRUE(strstr(s1, "x - 1") != NULL);
+  ASSERT_TRUE(strstr(s1, "1 + x") != NULL || strstr(s1, "x + 1") != NULL);
+  ASSERT_TRUE(strstr(s1, "*") != NULL);
+  free(s1);
+  ast_free(f1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("x^2 + x");
+  AstNode *f2 = sym_factor(ast_clone(r2.root));
+  char *s2 = ast_to_string(f2);
+  ASSERT_TRUE(strstr(s2, "x*") != NULL || strstr(s2, "*x") != NULL);
+  ASSERT_TRUE(strstr(s2, "1 + x") != NULL || strstr(s2, "x + 1") != NULL);
+  free(s2);
+  ast_free(f2);
+  parse_result_free(&r2);
+
+  PASS();
+}
+
 static void test_simplify_elementary_functions(void) {
   TEST("simplify: abs(-16), sqrt(49), log(1000, 10), log(8, 2)");
 
@@ -473,6 +498,7 @@ void tests_simplification_functional(void) {
   test_simplify_exp_ln();
   test_simplify_sqrt_power_domain_guard();
   test_simplify_log_rules_with_domains();
+  test_factor_polynomials();
   test_simplify_elementary_functions();
   test_simplify_distributive();
   test_full_simplify_distribution();
