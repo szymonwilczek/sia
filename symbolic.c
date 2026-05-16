@@ -634,6 +634,22 @@ AstNode *sym_simplify(AstNode *node) {
       ast_free(node);
       return inner;
     }
+    /* -((-x)^n) -> x^n when n is odd integer */
+    if (node->as.unary.operand->type == AST_BINOP &&
+        node->as.unary.operand->as.binop.op == OP_POW &&
+        node->as.unary.operand->as.binop.left->type == AST_UNARY_NEG &&
+        node->as.unary.operand->as.binop.right->type == AST_NUMBER &&
+        c_is_real(node->as.unary.operand->as.binop.right->as.number)) {
+      double n = node->as.unary.operand->as.binop.right->as.number.re;
+      if (n == (int)n && ((int)n % 2 != 0)) {
+        AstNode *base = node->as.unary.operand->as.binop.left->as.unary.operand;
+        AstNode *exp = node->as.unary.operand->as.binop.right;
+        node->as.unary.operand->as.binop.left->as.unary.operand = NULL;
+        node->as.unary.operand->as.binop.right = NULL;
+        ast_free(node);
+        return ast_binop(OP_POW, base, exp);
+      }
+    }
     return node;
 
   case AST_FUNC_CALL:
@@ -719,6 +735,55 @@ AstNode *sym_simplify(AstNode *node) {
           ast_free(node);
           return sym_simplify(ast_binop(OP_MUL, outer, sqrt_inner));
         }
+      }
+    }
+    /* exp(X) -> 0 when X tends to -inf (contains inf with negative sign) */
+    if (is_call1(node, "exp")) {
+      AstNode *arg = node->as.call.args[0];
+      int neg_inf = 0;
+      if (arg->type == AST_UNARY_NEG &&
+          arg->as.unary.operand->type == AST_VARIABLE &&
+          strcmp(arg->as.unary.operand->as.variable, "inf") == 0) {
+        neg_inf = 1;
+      } else if (arg->type == AST_UNARY_NEG &&
+                 arg->as.unary.operand->type == AST_BINOP &&
+                 arg->as.unary.operand->as.binop.op == OP_MUL) {
+        AstNode *prod = arg->as.unary.operand;
+        if ((prod->as.binop.left->type == AST_VARIABLE &&
+             strcmp(prod->as.binop.left->as.variable, "inf") == 0) ||
+            (prod->as.binop.right->type == AST_VARIABLE &&
+             strcmp(prod->as.binop.right->as.variable, "inf") == 0))
+          neg_inf = 1;
+      } else if (arg->type == AST_BINOP && arg->as.binop.op == OP_MUL) {
+        int has_inf = 0, has_neg = 0;
+        AstNode *l = arg->as.binop.left;
+        AstNode *r = arg->as.binop.right;
+        if (l->type == AST_VARIABLE && strcmp(l->as.variable, "inf") == 0)
+          has_inf = 1;
+        if (r->type == AST_VARIABLE && strcmp(r->as.variable, "inf") == 0)
+          has_inf = 1;
+        if (l->type == AST_UNARY_NEG) {
+          has_neg = 1;
+          if (l->as.unary.operand->type == AST_VARIABLE &&
+              strcmp(l->as.unary.operand->as.variable, "inf") == 0)
+            has_inf = 1;
+        }
+        if (r->type == AST_UNARY_NEG) {
+          has_neg = 1;
+          if (r->as.unary.operand->type == AST_VARIABLE &&
+              strcmp(r->as.unary.operand->as.variable, "inf") == 0)
+            has_inf = 1;
+        }
+        if (l->type == AST_NUMBER && l->as.number.re < 0)
+          has_neg = 1;
+        if (r->type == AST_NUMBER && r->as.number.re < 0)
+          has_neg = 1;
+        if (has_inf && has_neg)
+          neg_inf = 1;
+      }
+      if (neg_inf) {
+        ast_free(node);
+        return ast_number(0);
       }
     }
     /* exp(ln(x)) -> x */
@@ -1138,6 +1203,15 @@ AstNode *sym_simplify(AstNode *node) {
       int n = (int)R->as.number.re / 2;
       ast_free(node);
       return sym_simplify(ast_binop(OP_POW, inner, ast_number(n)));
+    }
+    /* (-x)^n -> x^n for even integer n */
+    if (L->type == AST_UNARY_NEG && is_num(R) && c_is_real(R->as.number) &&
+        R->as.number.re == (int)R->as.number.re &&
+        (int)R->as.number.re % 2 == 0) {
+      AstNode *inner = ast_clone(L->as.unary.operand);
+      AstNode *exp = ast_clone(R);
+      ast_free(node);
+      return sym_simplify(ast_binop(OP_POW, inner, exp));
     }
     /* (x^a)^b -> x^(a*b) */
     if (L->type == AST_BINOP && L->as.binop.op == OP_POW) {
