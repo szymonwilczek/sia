@@ -293,6 +293,23 @@ static void test_solver_log_compound_argument(void) {
   PASS();
 }
 
+static void test_solver_phantom_root_rejected(void) {
+  TEST("solve: 1/(x-1) = 1/(x^2-1) drops Newton phantom root");
+  ParseResult pr = parse("1/(x - 1) = 1/(x^2 - 1)");
+  ASSERT_TRUE(pr.root != NULL);
+
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_CNEAR(r.roots[0], c_real(0.0), 1e-9);
+
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
 static void test_solver_double_root_collapsed(void) {
   TEST("solve: double root x^2 - 2*x + 1 = 0 -> single x = 1");
   ParseResult pr = parse("x^2 - 2*x + 1 = 0");
@@ -370,6 +387,7 @@ void tests_solver_mathtest(void) {
   test_solver_nested_fraction_equation();
   test_solver_log_compound_argument();
   test_solver_double_root_collapsed();
+  test_solver_phantom_root_rejected();
   test_solver_cubic_multi_seed_newton();
   test_solver_quartic_with_stationary_origin();
 }

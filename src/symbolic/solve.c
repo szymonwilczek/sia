@@ -562,6 +562,34 @@ SolveResult sym_solve(const AstNode *expr, const char *var, Complex x0,
     free(forbidden.items);
   }
 
+  /* validate every numeric root against the original equation. plug each
+   * candidate back in and drop anything with a non-zero residual. */
+  if (result.ok && result.count > 0) {
+    AstNode *check_expr;
+    if (expr->type == AST_EQ) {
+      check_expr = ast_binop(OP_SUB, ast_clone(expr->as.eq.lhs),
+                             ast_clone(expr->as.eq.rhs));
+    } else {
+      check_expr = ast_clone(expr);
+    }
+
+    Complex *kept = malloc(result.count * sizeof(Complex));
+    size_t keep = 0;
+    for (size_t i = 0; i < result.count; i++) {
+      Complex residual = eval_at(check_expr, var, result.roots[i], st);
+      if (!isnan(residual.re) && !isnan(residual.im) && !isinf(residual.re) &&
+          !isinf(residual.im) && c_abs(residual) < 1e-6) {
+        kept[keep++] = result.roots[i];
+      }
+    }
+    ast_free(check_expr);
+    free(result.roots);
+    result.roots = keep ? kept : NULL;
+    if (!keep)
+      free(kept);
+    result.count = keep;
+  }
+
   return result;
 }
 
