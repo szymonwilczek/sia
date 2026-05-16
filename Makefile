@@ -1,4 +1,4 @@
-VERSION   := 0.9.5-8
+VERSION   := 0.9.6
 CODENAME  := Jordan's Jewel
 
 CC      ?= gcc

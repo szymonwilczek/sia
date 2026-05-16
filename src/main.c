@@ -781,7 +781,15 @@ static int process_input(const char *input, int batch_mode) {
     return 1;
   }
 
+  int top_level_limit = pr.root->type == AST_LIMIT;
   pr.root = resolve_symbolic(pr.root, &global_symtab);
+  if (top_level_limit) {
+    char *s = ast_to_string(pr.root);
+    output_result(pr.root, s, batch_mode);
+    free(s);
+    parse_result_free(&pr);
+    return 0;
+  }
 
   /* symbolic function calls: diff, grad, taylor, int, simplify */
   if (pr.root->type == AST_FUNC_CALL) {
