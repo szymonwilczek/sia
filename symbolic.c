@@ -2,6 +2,7 @@
 #include "ast.h"
 #include "canonical.h"
 #include "factorial.h"
+#include "limits.h"
 #include "logarithm.h"
 #include "matrix.h"
 #include "number_theory.h"
@@ -194,6 +195,19 @@ static int is_zero_node(const AstNode *n) {
   return n && n->type == AST_NUMBER && c_is_zero(n->as.number);
 }
 
+static int is_positive_inf_node(const AstNode *n) {
+  return n && n->type == AST_VARIABLE && strcmp(n->as.variable, "inf") == 0;
+}
+
+static int is_negative_inf_node(const AstNode *n) {
+  return n && n->type == AST_UNARY_NEG &&
+         is_positive_inf_node(n->as.unary.operand);
+}
+
+static int is_inf_node(const AstNode *n) {
+  return is_positive_inf_node(n) || is_negative_inf_node(n);
+}
+
 int sym_contains_var(const AstNode *n, const char *var) {
   if (!n)
     return 0;
@@ -212,6 +226,12 @@ int sym_contains_var(const AstNode *n, const char *var) {
       if (sym_contains_var(n->as.call.args[i], var))
         return 1;
     return 0;
+  case AST_LIMIT:
+    if (sym_contains_var(n->as.limit.target, var))
+      return 1;
+    if (strcmp(n->as.limit.var, var) == 0)
+      return 0;
+    return sym_contains_var(n->as.limit.expr, var);
   case AST_MATRIX: {
     size_t total = n->as.matrix.rows * n->as.matrix.cols;
     for (size_t i = 0; i < total; i++)
@@ -251,6 +271,10 @@ static int ast_equal(const AstNode *a, const AstNode *b) {
       if (!ast_equal(a->as.call.args[i], b->as.call.args[i]))
         return 0;
     return 1;
+  case AST_LIMIT:
+    return strcmp(a->as.limit.var, b->as.limit.var) == 0 &&
+           ast_equal(a->as.limit.target, b->as.limit.target) &&
+           ast_equal(a->as.limit.expr, b->as.limit.expr);
   case AST_MATRIX:
     if (a->as.matrix.rows != b->as.matrix.rows ||
         a->as.matrix.cols != b->as.matrix.cols)
@@ -627,6 +651,19 @@ AstNode *sym_simplify(AstNode *node) {
     return node;
   }
 
+  case AST_LIMIT: {
+    AstNode *result = NULL;
+    node->as.limit.expr = sym_simplify(node->as.limit.expr);
+    node->as.limit.target = sym_simplify(node->as.limit.target);
+    result = sym_limit(node->as.limit.expr, node->as.limit.var,
+                       node->as.limit.target);
+    if (result) {
+      ast_free(node);
+      return result;
+    }
+    return node;
+  }
+
   case AST_UNARY_NEG:
     node->as.unary.operand = sym_simplify(node->as.unary.operand);
     if (is_num(node->as.unary.operand)) {
@@ -969,6 +1006,17 @@ AstNode *sym_simplify(AstNode *node) {
     break;
 
   case OP_MUL:
+    if ((is_inf_node(L) && is_num(R) && !c_is_zero(R->as.number)) ||
+        (is_inf_node(R) && is_num(L) && !c_is_zero(L->as.number))) {
+      AstNode *inf = is_inf_node(L) ? L : R;
+      AstNode *coeff = is_inf_node(L) ? R : L;
+      int neg = is_negative_inf_node(inf);
+      if (coeff->as.number.re < 0)
+        neg = !neg;
+      ast_free(node);
+      return neg ? ast_unary_neg(ast_variable("inf", 3))
+                 : ast_variable("inf", 3);
+    }
     if (is_number(L, 0) || is_number(R, 0)) {
       ast_free(node);
       return ast_number(0);
@@ -1131,6 +1179,10 @@ AstNode *sym_simplify(AstNode *node) {
     break;
 
   case OP_DIV:
+    if (is_inf_node(R) && !is_inf_node(L)) {
+      ast_free(node);
+      return ast_number(0);
+    }
     if (is_number(R, 1)) {
       node->as.binop.left = NULL;
       ast_free(node);
@@ -1188,6 +1240,13 @@ AstNode *sym_simplify(AstNode *node) {
     break;
 
   case OP_POW:
+    if (is_inf_node(L) && is_num(R) && c_is_real(R->as.number)) {
+      double exp = R->as.number.re;
+      ast_free(node);
+      if (exp < 0.0)
+        return ast_number(0);
+      return ast_variable("inf", 3);
+    }
     if (is_number(R, 0)) {
       ast_free(node);
       return ast_number(1);
@@ -1633,6 +1692,10 @@ static AstNode *simplify_subexpressions(AstNode *node) {
   case AST_FUNC_CALL:
     for (size_t i = 0; i < node->as.call.nargs; i++)
       node->as.call.args[i] = simplify_subexpressions(node->as.call.args[i]);
+    return node;
+  case AST_LIMIT:
+    node->as.limit.expr = simplify_subexpressions(node->as.limit.expr);
+    node->as.limit.target = simplify_subexpressions(node->as.limit.target);
     return node;
   case AST_BINOP:
     break;
@@ -2190,6 +2253,10 @@ AstNode *sym_expand(AstNode *node) {
     free(args);
     return c;
   }
+  case AST_LIMIT:
+    return ast_limit(sym_expand(node->as.limit.expr), node->as.limit.var,
+                     strlen(node->as.limit.var),
+                     sym_expand(node->as.limit.target));
   case AST_BINOP: {
     AstNode *L = sym_expand(node->as.binop.left);
     AstNode *R = sym_expand(node->as.binop.right);
@@ -2280,6 +2347,12 @@ static AstNode *reduce_rational_subexprs(const AstNode *node) {
                                args, node->as.call.nargs);
     free(args);
     return r;
+  }
+
+  if (node->type == AST_LIMIT) {
+    return ast_limit(reduce_rational_subexprs(node->as.limit.expr),
+                     node->as.limit.var, strlen(node->as.limit.var),
+                     reduce_rational_subexprs(node->as.limit.target));
   }
 
   return ast_clone(node);
@@ -2482,6 +2555,11 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
 
     return sym_simplify(ast_binop(OP_MUL, outer_d, inner_d));
   }
+
+  case AST_LIMIT:
+    if (!sym_contains_var(expr, var))
+      return ast_number(0);
+    return NULL;
   }
 
   return NULL;
@@ -2586,6 +2664,21 @@ AstNode *sym_subs(const AstNode *expr, const char *var, const AstNode *val) {
                       expr->as.call.nargs);
     free(args);
     return result;
+  }
+  case AST_LIMIT: {
+    AstNode *target = sym_subs(expr->as.limit.target, var, val);
+    AstNode *body = NULL;
+    if (strcmp(expr->as.limit.var, var) == 0)
+      body = ast_clone(expr->as.limit.expr);
+    else
+      body = sym_subs(expr->as.limit.expr, var, val);
+    if (!body || !target) {
+      ast_free(body);
+      ast_free(target);
+      return NULL;
+    }
+    return ast_limit(body, expr->as.limit.var, strlen(expr->as.limit.var),
+                     target);
   }
   case AST_MATRIX: {
     size_t total = expr->as.matrix.rows * expr->as.matrix.cols;
