@@ -15,6 +15,13 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifndef SIA_VERSION
+#define SIA_VERSION "dev"
+#endif
+#ifndef SIA_CODENAME
+#define SIA_CODENAME "unknown"
+#endif
+
 static int is_tty;
 static int latex_mode;
 static int full_doc_mode;
@@ -1021,10 +1028,42 @@ static int process_input(const char *input, int batch_mode) {
   return 0;
 }
 
+static void print_warranty(void) {
+  fprintf(
+      stderr,
+      "  THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY\n"
+      "  APPLICABLE LAW. EXCEPT WHEN OTHERWISE STATED IN WRITING THE "
+      "COPYRIGHT\n"
+      "  HOLDERS AND/OR OTHER PARTIES PROVIDE THE PROGRAM \"AS IS\" WITHOUT\n"
+      "  WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, BUT "
+      "NOT\n"
+      "  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS "
+      "FOR\n"
+      "  A PARTICULAR PURPOSE. THE ENTIRE RISK AS TO THE QUALITY AND "
+      "PERFORMANCE\n"
+      "  OF THE PROGRAM IS WITH YOU. SHOULD THE PROGRAM PROVE DEFECTIVE, YOU\n"
+      "  ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR OR CORRECTION.\n");
+}
+
+static void print_conditions(void) {
+  fprintf(
+      stderr,
+      "  This program is free software; you can redistribute it and/or modify\n"
+      "  it under the terms of the GNU General Public License as published by\n"
+      "  the Free Software Foundation; either version 2 of the License, or\n"
+      "  (at your option) any later version.\n\n"
+      "  See the GNU General Public License for more details:\n"
+      "  https://www.gnu.org/licenses/old-licenses/gpl-2.0.html\n");
+}
+
 static void repl(void) {
   char line[4096];
   fprintf(stderr,
-          "sia v" SIA_VERSION " - type an expression, or 'quit' to exit\n");
+          "sia v" SIA_VERSION " \"" SIA_CODENAME "\"\n"
+          "Copyright (C) 2025 Szymon Wilczek\n"
+          "sia comes with ABSOLUTELY NO WARRANTY; for details type 'show w'.\n"
+          "This is free software, and you are welcome to redistribute it\n"
+          "under certain conditions; type 'show c' for details.\n\n");
 
   for (;;) {
     fprintf(stdout, "sia> ");
@@ -1041,6 +1080,14 @@ static void repl(void) {
       continue;
     if (strcmp(line, "quit") == 0 || strcmp(line, "exit") == 0)
       break;
+    if (strcmp(line, "show w") == 0) {
+      print_warranty();
+      continue;
+    }
+    if (strcmp(line, "show c") == 0) {
+      print_conditions();
+      continue;
+    }
 
     process_input(line, 0);
   }
