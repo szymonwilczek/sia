@@ -575,11 +575,20 @@ static int canonical_poly_from_ast(const AstNode *node,
 
 static AstNode *canonical_term_to_ast(const CanonicalTerm *term) {
   AstNode *result = NULL;
+  int has_vars = 0;
 
-  if (!c_is_one(term->coeff) || term->degree_count == 0)
+  for (size_t i = 0; i < term->degree_count; i++) {
+    if (term->degrees[i].degree == 0)
+      continue;
+    has_vars = 1;
+  }
+
+  if (!c_is_one(term->coeff) || !has_vars)
     result = ast_number_complex(term->coeff);
 
   for (size_t i = 0; i < term->degree_count; i++) {
+    if (term->degrees[i].degree == 0)
+      continue;
     AstNode *factor =
         ast_variable(term->degrees[i].var, strlen(term->degrees[i].var));
     if (term->degrees[i].degree != 1) {
@@ -939,8 +948,34 @@ AstNode *ast_poly_gcd_reduce(const AstNode *numer, const AstNode *denom) {
   canonical_poly_normalize(&pn);
   canonical_poly_normalize(&pd);
 
-  if (!poly_is_univariate(&pd, &var_d))
+  if (!poly_is_univariate(&pd, &var_d)) {
+    /* multivariate denominator: find lead variable and try exact division */
+    const char *lead_var = NULL;
+    int lead_deg = 0;
+    for (size_t i = 0; i < pd.count; i++) {
+      for (size_t j = 0; j < pd.terms[i].degree_count; j++) {
+        if (pd.terms[i].degrees[j].degree > lead_deg) {
+          lead_deg = pd.terms[i].degrees[j].degree;
+          lead_var = pd.terms[i].degrees[j].var;
+        }
+      }
+    }
+    if (!lead_var)
+      goto fail;
+    CanonicalPolynomial quot = {0};
+    if (!canonical_poly_exact_div(&pn, &pd, lead_var, &quot))
+      goto fail;
+    if (quot.count == 0) {
+      result = ast_number(0);
+    } else {
+      for (size_t i = 0; i < quot.count; i++) {
+        AstNode *t = canonical_term_to_ast(&quot.terms[i]);
+        result = result ? ast_binop(OP_ADD, result, t) : t;
+      }
+    }
+    canonical_polynomial_free(&quot);
     goto fail;
+  }
 
   if (!poly_is_univariate(&pn, &var_n)) {
     /* multivariate numerator, univariate denominator: try exact division */
