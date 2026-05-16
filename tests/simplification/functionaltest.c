@@ -207,6 +207,13 @@ static void test_simplify_exp_ln(void) {
   ast_free(s4);
   parse_result_free(&r4);
 
+  ParseResult r5 = parse("ln(exp(x))");
+  AstNode *s5 = sym_simplify(ast_clone(r5.root));
+  ASSERT_EQ(s5->type, AST_VARIABLE);
+  ASSERT_STR_EQ(s5->as.variable, "x");
+  ast_free(s5);
+  parse_result_free(&r5);
+
   PASS();
 }
 

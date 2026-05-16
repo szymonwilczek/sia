@@ -608,6 +608,11 @@ AstNode *sym_simplify(AstNode *node) {
       return trig_simplify_call(node);
     if (number_theory_kind(node) != NT_KIND_NONE)
       return number_theory_simplify_call(node);
+    if (is_call1(node, "ln") && is_call1(node->as.call.args[0], "exp")) {
+      AstNode *inner = ast_clone(node->as.call.args[0]->as.call.args[0]);
+      ast_free(node);
+      return inner;
+    }
     if (is_call1(node, "ln") && is_var(node->as.call.args[0], "e")) {
       ast_free(node);
       return ast_number(1);
@@ -827,12 +832,6 @@ AstNode *sym_simplify(AstNode *node) {
     }
     /* exp(ln(x)) -> x */
     if (is_call1(node, "exp") && is_call1(node->as.call.args[0], "ln")) {
-      AstNode *inner = ast_clone(node->as.call.args[0]->as.call.args[0]);
-      ast_free(node);
-      return inner;
-    }
-    /* ln(exp(x)) -> x */
-    if (is_call1(node, "ln") && is_call1(node->as.call.args[0], "exp")) {
       AstNode *inner = ast_clone(node->as.call.args[0]->as.call.args[0]);
       ast_free(node);
       return inner;
