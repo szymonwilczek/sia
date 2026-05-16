@@ -168,6 +168,80 @@ static void test_solver_equation_backward_compat(void) {
   PASS();
 }
 
+static void test_solver_symbolic_coeffs_fail_clean(void) {
+  TEST("solve: free symbols return clean error (no Newton crash)");
+  ParseResult pr = parse("a*x - b = c*x + d");
+  ASSERT_TRUE(pr.root != NULL);
+
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(!r.ok);
+  ASSERT_TRUE(r.error != NULL);
+
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solver_symbolic_coeffs_resolve_with_symtab(void) {
+  TEST("solve: linear symbolic coeffs eval through symtab");
+  ParseResult pr = parse("a*x - b = c*x + d");
+  ASSERT_TRUE(pr.root != NULL);
+
+  SymTab st;
+  symtab_init(&st);
+  symtab_set(&st, "a", c_real(3));
+  symtab_set(&st, "b", c_real(1));
+  symtab_set(&st, "c", c_real(1));
+  symtab_set(&st, "d", c_real(5));
+  /* expected: (3 - 1)*x = 1 + 5 -> x = 3 */
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_CNEAR(r.roots[0], c_real(3.0), 1e-9);
+
+  solve_result_free(&r);
+  symtab_free(&st);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solver_nested_fraction_equation(void) {
+  TEST("solve: nested rational 1/(1 + 1/x) = 2 -> x = -2");
+  ParseResult pr = parse("1/(1 + 1/x) = 2");
+  ASSERT_TRUE(pr.root != NULL);
+
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_CNEAR(r.roots[0], c_real(-2.0), 1e-9);
+
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solver_log_compound_argument(void) {
+  TEST("solve: log_2(x^2 - 5) = 2 -> {-3, 3}");
+  ParseResult pr = parse("log(x^2 - 5, 2) = 2");
+  ASSERT_TRUE(pr.root != NULL);
+
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 2);
+  ASSERT_TRUE(complex_in(r.roots, r.count, c_real(3.0), 1e-9));
+  ASSERT_TRUE(complex_in(r.roots, r.count, c_real(-3.0), 1e-9));
+
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
 void tests_solver_mathtest(void) {
   test_solver_roots_satisfy_polynomial();
   test_solver_newton_root_satisfies_transcendental();
@@ -177,4 +251,8 @@ void tests_solver_mathtest(void) {
   test_solver_rational_extraneous_root_filtered();
   test_solver_rational_valid_root_preserved();
   test_solver_equation_backward_compat();
+  test_solver_symbolic_coeffs_fail_clean();
+  test_solver_symbolic_coeffs_resolve_with_symtab();
+  test_solver_nested_fraction_equation();
+  test_solver_log_compound_argument();
 }

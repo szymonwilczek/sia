@@ -198,6 +198,38 @@ static int extract_poly_coeffs(const AstNode *expr, const char *var,
   return deg;
 }
 
+static int has_foreign_symbol(const AstNode *n, const char *var) {
+  if (!n)
+    return 0;
+  switch (n->type) {
+  case AST_NUMBER:
+    return 0;
+  case AST_VARIABLE: {
+    const char *s = n->as.variable;
+    if (strcmp(s, var) == 0)
+      return 0;
+    if (strcmp(s, "pi") == 0 || strcmp(s, "e") == 0 || strcmp(s, "i") == 0)
+      return 0;
+    return 1;
+  }
+  case AST_BINOP:
+    return has_foreign_symbol(n->as.binop.left, var) ||
+           has_foreign_symbol(n->as.binop.right, var);
+  case AST_UNARY_NEG:
+    return has_foreign_symbol(n->as.unary.operand, var);
+  case AST_FUNC_CALL:
+    for (size_t i = 0; i < n->as.call.nargs; i++)
+      if (has_foreign_symbol(n->as.call.args[i], var))
+        return 1;
+    return 0;
+  case AST_EQ:
+    return has_foreign_symbol(n->as.eq.lhs, var) ||
+           has_foreign_symbol(n->as.eq.rhs, var);
+  default:
+    return 0;
+  }
+}
+
 typedef struct {
   AstNode **items;
   size_t count;
@@ -424,12 +456,37 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
     return fail("null expression or variable");
 
   /* AST_EQ(lhs, rhs)  =>  lhs - rhs (set to zero implicitly).
-   * Reduce rational subexpressions on each side first so (x^2-1)/(x-1)
-   * collapses to 1+x before structure-mangling canonicalization. */
+   * Cross-multiply any top-level DIV on either side first to clear the
+   * outermost denominator without relying on the simplifier to cancel
+   * factors across a sum (e.g. 1/(1+1/x) = 2 becomes 1 = 2*(1+1/x)).
+   * Then reduce rational subexpressions so (x^2-1)/(x-1) collapses to
+   * 1+x before structure-mangling canonicalization. */
   if (expr->type == AST_EQ) {
-    AstNode *l = sym_reduce_rational_subexprs(expr->as.eq.lhs);
-    AstNode *r = sym_reduce_rational_subexprs(expr->as.eq.rhs);
-    normalized = ast_binop(OP_SUB, l, r);
+    AstNode *l = ast_clone(expr->as.eq.lhs);
+    AstNode *r = ast_clone(expr->as.eq.rhs);
+    while (l && l->type == AST_BINOP && l->as.binop.op == OP_DIV) {
+      AstNode *num = l->as.binop.left;
+      AstNode *den = l->as.binop.right;
+      l->as.binop.left = NULL;
+      l->as.binop.right = NULL;
+      ast_free(l);
+      l = num;
+      r = ast_binop(OP_MUL, r, den);
+    }
+    while (r && r->type == AST_BINOP && r->as.binop.op == OP_DIV) {
+      AstNode *num = r->as.binop.left;
+      AstNode *den = r->as.binop.right;
+      r->as.binop.left = NULL;
+      r->as.binop.right = NULL;
+      ast_free(r);
+      r = num;
+      l = ast_binop(OP_MUL, l, den);
+    }
+    AstNode *lr = sym_reduce_rational_subexprs(l);
+    AstNode *rr = sym_reduce_rational_subexprs(r);
+    ast_free(l);
+    ast_free(r);
+    normalized = ast_binop(OP_SUB, lr, rr);
   } else {
     normalized = sym_reduce_rational_subexprs(expr);
   }
@@ -437,88 +494,128 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
   simplified = sym_simplify(normalized);
   if (!simplified)
     return fail("failed to simplify expression before solving");
-
-  /* if the simplified form still has var-dependent denominators, multiply
-   * through with cancellation so the rational equation becomes a
-   * polynomial. Extraneous roots are stripped later by filter_extraneous. */
+  /* log_b(f(x)) = c  =>  f(x) = b^c  (recursively solve the inner form so
+   * f(x) need not be the bare variable). Detected here, BEFORE the expand
+   * pipeline rewrites SUB(log,...) into a sum form that the log_kind
+   * pattern can no longer match. */
   {
+    const AstNode *log_node = NULL;
+    const AstNode *other = NULL;
+    if (simplified->type == AST_BINOP && simplified->as.binop.op == OP_SUB) {
+      const AstNode *lhs = simplified->as.binop.left;
+      const AstNode *rhs = simplified->as.binop.right;
+      if (log_kind(lhs) != LOG_KIND_NONE && !sym_contains_var(rhs, var)) {
+        log_node = lhs;
+        other = rhs;
+      } else if (log_kind(rhs) != LOG_KIND_NONE &&
+                 !sym_contains_var(lhs, var)) {
+        log_node = rhs;
+        other = lhs;
+      }
+    } else if (log_kind(simplified) != LOG_KIND_NONE) {
+      log_node = simplified;
+      other = NULL;
+    }
+
+    if (log_node) {
+      LogKind k = log_kind(log_node);
+      AstNode *value = ast_clone(log_node->as.call.args[0]);
+      AstNode *base = NULL;
+      int base_has_var = 0;
+      switch (k) {
+      case LOG_KIND_LN:
+        base = NULL;
+        break;
+      case LOG_KIND_BASE10:
+        base = ast_number(10);
+        break;
+      case LOG_KIND_BASE2:
+        base = ast_number(2);
+        break;
+      case LOG_KIND_GENERIC:
+        base = ast_clone(log_node->as.call.args[1]);
+        base_has_var = sym_contains_var(base, var);
+        break;
+      default:
+        ast_free(value);
+        value = NULL;
+        break;
+      }
+
+      if (value && !base_has_var) {
+        /* log_b(f(x)) = c  =>  f(x) = b^c  */
+        AstNode *other_clone = other ? ast_clone(other) : ast_number(0);
+        AstNode *rhs_pow;
+        if (!base) {
+          rhs_pow = ast_func_call("exp", 3, (AstNode *[]){other_clone}, 1);
+        } else {
+          rhs_pow = ast_binop(OP_POW, base, other_clone);
+        }
+        AstNode *new_expr = ast_binop(OP_SUB, value, rhs_pow);
+        ast_free(simplified);
+        SolveResult sub = sym_solve_core(new_expr, var, x0, st);
+        ast_free(new_expr);
+        return sub;
+      }
+      if (value && base && base_has_var && !sym_contains_var(value, var)) {
+        /* log_x(value) = c  =>  x^c = value  =>  x = value^(1/c)  */
+        AstNode *other_clone = other ? ast_clone(other) : ast_number(0);
+        AstNode *inv = ast_binop(OP_DIV, ast_number(1), other_clone);
+        AstNode *new_value = ast_binop(OP_POW, value, inv);
+        AstNode *new_expr = ast_binop(OP_SUB, base, new_value);
+        ast_free(simplified);
+        SolveResult sub = sym_solve_core(new_expr, var, x0, st);
+        ast_free(new_expr);
+        return sub;
+      }
+      ast_free(value);
+      ast_free(base);
+    }
+  }
+
+  /* Cross-multiplication leaves nested SUBs (e.g. (x^2-1) - 2*(x-1)) that
+   * extract_poly_coeffs cannot flatten through its OP_ADD-only walker.
+   * Run the full expand pipeline once so terms become a flat polynomial. */
+  {
+    AstNode *expanded = sym_expand(simplified);
+    if (expanded) {
+      ast_free(simplified);
+      simplified = expanded;
+    }
+    simplified = ast_canonicalize(simplified);
+    simplified = sym_collect_terms(simplified);
+    simplified = sym_full_simplify(simplified);
+  }
+
+  /* If the simplified form still has var-dependent denominators, multiply
+   * through with cancellation so the rational equation becomes a
+   * polynomial. Iterate because a single pass may leave a nested rational
+   * intact (e.g. (x+1)*(1+x^-1)^-1 — the bases x+1 and 1+x^-1 don't
+   * structurally match for power cancellation). Each pass clears another
+   * level; bail at 8 to avoid runaway cost. Extraneous roots are stripped
+   * later by filter_extraneous. */
+  for (int pass = 0; pass < 8; pass++) {
     DenomList denoms = {0};
     collect_denominators(simplified, var, &denoms);
-    if (denoms.count > 0) {
-      /* multiply through by the product of all collected denominators,
-       * then expand and simplify so paired POW(d, -1)*d cancel. */
-      AstNode *product = ast_clone(denoms.items[0]);
-      for (size_t i = 1; i < denoms.count; i++)
-        product = ast_binop(OP_MUL, product, ast_clone(denoms.items[i]));
-      simplified = ast_binop(OP_MUL, simplified, product);
-
-      AstNode *expanded = sym_expand(simplified);
-      if (expanded) {
-        ast_free(simplified);
-        simplified = expanded;
-      }
-      simplified = sym_full_simplify(simplified);
-    }
-    denom_list_free(&denoms);
-  }
-
-  if (simplified->type == AST_BINOP && simplified->as.binop.op == OP_SUB) {
-    const AstNode *lhs = simplified->as.binop.left;
-    const AstNode *rhs = simplified->as.binop.right;
-
-    if (log_kind(lhs) != LOG_KIND_NONE && !sym_contains_var(rhs, var)) {
-      AstNode *root_expr = log_solve_call(lhs, rhs, var);
-      if (root_expr) {
-        root_expr = sym_simplify(root_expr);
-        EvalResult er = eval(root_expr, st);
-        ast_free(root_expr);
-        if (!er.ok) {
-          ast_free(simplified);
-          return fail(er.error ? er.error : "evaluation error during solve");
-        }
-        SolveResult r = ok_roots(&er.value, 1);
-        eval_result_free(&er);
-        ast_free(simplified);
-        return r;
-      }
+    if (denoms.count == 0) {
+      denom_list_free(&denoms);
+      break;
     }
 
-    if (log_kind(rhs) != LOG_KIND_NONE && !sym_contains_var(lhs, var)) {
-      AstNode *root_expr = log_solve_call(rhs, lhs, var);
-      if (root_expr) {
-        root_expr = sym_simplify(root_expr);
-        EvalResult er = eval(root_expr, st);
-        ast_free(root_expr);
-        if (!er.ok) {
-          ast_free(simplified);
-          return fail(er.error ? er.error : "evaluation error during solve");
-        }
-        SolveResult r = ok_roots(&er.value, 1);
-        eval_result_free(&er);
-        ast_free(simplified);
-        return r;
-      }
-    }
-  }
+    AstNode *product = ast_clone(denoms.items[0]);
+    for (size_t i = 1; i < denoms.count; i++)
+      product = ast_binop(OP_MUL, product, ast_clone(denoms.items[i]));
+    simplified = ast_binop(OP_MUL, simplified, product);
 
-  if (log_kind(simplified) != LOG_KIND_NONE &&
-      !sym_contains_var(simplified, var)) {
-    AstNode *zero = ast_number(0);
-    AstNode *root_expr = log_solve_call(simplified, zero, var);
-    ast_free(zero);
-    if (root_expr) {
-      root_expr = sym_simplify(root_expr);
-      EvalResult er = eval(root_expr, st);
-      ast_free(root_expr);
-      if (!er.ok) {
-        ast_free(simplified);
-        return fail(er.error ? er.error : "evaluation error during solve");
-      }
-      SolveResult r = ok_roots(&er.value, 1);
-      eval_result_free(&er);
+    AstNode *expanded = sym_expand(simplified);
+    if (expanded) {
       ast_free(simplified);
-      return r;
+      simplified = expanded;
     }
+    simplified = ast_canonicalize(simplified);
+    simplified = sym_collect_terms(simplified);
+    simplified = sym_full_simplify(simplified);
+    denom_list_free(&denoms);
   }
 
   /* try polynomial extraction up to degree 2 */
@@ -540,6 +637,76 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
     result = solve_quadratic(coeffs[2], coeffs[1], coeffs[0]);
     ast_free(simplified);
     return result;
+  }
+
+  /* Symbolic linear isolator for A(s)*x + B(s) = 0 where A, B may depend on
+   * free symbols other than `var`. f(0) gives B, f(1) - f(0) gives A; we
+   * verify linearity by checking f(2) - (2*A + B) simplifies to zero. If
+   * linear, return -B/A evaluated through the symtab — callers can bind
+   * the free symbols beforehand. */
+  {
+    AstNode *zero = ast_number(0);
+    AstNode *one = ast_number(1);
+    AstNode *two = ast_number(2);
+    AstNode *f0 = sym_full_simplify(sym_subs(simplified, var, zero));
+    AstNode *f1 = sym_full_simplify(sym_subs(simplified, var, one));
+    AstNode *f2 = sym_full_simplify(sym_subs(simplified, var, two));
+    ast_free(zero);
+    ast_free(one);
+    ast_free(two);
+
+    if (f0 && f1 && f2) {
+      AstNode *A =
+          sym_full_simplify(ast_binop(OP_SUB, ast_clone(f1), ast_clone(f0)));
+      AstNode *B = ast_clone(f0);
+      AstNode *predicted_f2 = sym_full_simplify(
+          ast_binop(OP_ADD, ast_binop(OP_MUL, ast_number(2), ast_clone(A)),
+                    ast_clone(B)));
+      AstNode *residual =
+          sym_full_simplify(ast_binop(OP_SUB, ast_clone(f2), predicted_f2));
+
+      int is_linear = residual && residual->type == AST_NUMBER &&
+                      c_is_zero(residual->as.number);
+      ast_free(residual);
+
+      if (is_linear && !is_zero_node(A)) {
+        AstNode *root_expr = sym_full_simplify(
+            ast_binop(OP_DIV, ast_unary_neg(ast_clone(B)), ast_clone(A)));
+        EvalResult er = eval(root_expr, st);
+        ast_free(root_expr);
+        ast_free(A);
+        ast_free(B);
+        ast_free(f0);
+        ast_free(f1);
+        ast_free(f2);
+        ast_free(simplified);
+        if (er.ok) {
+          SolveResult r = ok_roots(&er.value, 1);
+          eval_result_free(&er);
+          return r;
+        }
+        char *msg = er.error ? strdup(er.error)
+                             : strdup("symbolic coefficients not bound; "
+                                      "assign values before solving");
+        eval_result_free(&er);
+        SolveResult fr = fail(msg);
+        free(msg);
+        return fr;
+      }
+      ast_free(A);
+      ast_free(B);
+    }
+    ast_free(f0);
+    ast_free(f1);
+    ast_free(f2);
+  }
+
+  /* Newton only handles purely numeric expressions in `var`; refuse if
+   * any other free symbol leaked through. */
+  if (has_foreign_symbol(simplified, var)) {
+    ast_free(simplified);
+    return fail("cannot solve: equation contains unbound symbols other "
+                "than the solve variable");
   }
 
   /* fallback: Newton-Raphson */
