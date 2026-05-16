@@ -20,6 +20,9 @@ typedef enum {
   LIMIT_CLASS_OTHER
 } LimitClass;
 
+static AstNode *limit_inner(const AstNode *expr, const char *var,
+                            const AstNode *target, int direction, int depth);
+
 static int is_zero_number(const AstNode *node) {
   return node && node->type == AST_NUMBER && c_is_zero(node->as.number);
 }
@@ -652,6 +655,25 @@ static LimitStatus direct_fraction_substitution(const AstNode *expr,
   return LIMIT_UNSUPPORTED;
 }
 
+static AstNode *limit_constant_base_power(const AstNode *expr, const char *var,
+                                          const AstNode *target,
+                                          int direction) {
+  if (!expr || expr->type != AST_BINOP || expr->as.binop.op != OP_POW)
+    return NULL;
+
+  const AstNode *base = expr->as.binop.left;
+  const AstNode *exponent = expr->as.binop.right;
+  if (sym_contains_var(base, var) || !sym_contains_var(exponent, var))
+    return NULL;
+
+  AstNode *exp_limit = limit_inner(exponent, var, target, direction, 0);
+  if (!exp_limit)
+    return NULL;
+
+  AstNode *powered = ast_binop(OP_POW, ast_clone(base), exp_limit);
+  return sym_full_simplify(powered);
+}
+
 static LimitStatus direct_substitution(const AstNode *expr, const char *var,
                                        const AstNode *target, int direction,
                                        AstNode **out) {
@@ -659,6 +681,13 @@ static LimitStatus direct_substitution(const AstNode *expr, const char *var,
       direct_fraction_substitution(expr, var, target, direction, out);
   if (fraction_status != LIMIT_UNSUPPORTED)
     return fraction_status;
+
+  AstNode *power_limit =
+      limit_constant_base_power(expr, var, target, direction);
+  if (power_limit) {
+    *out = power_limit;
+    return LIMIT_DIRECT_OK;
+  }
 
   AstNode *poly_inf = limit_polynomial_at_infinity(expr, var, target);
   if (poly_inf) {

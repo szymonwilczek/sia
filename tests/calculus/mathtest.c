@@ -151,6 +151,13 @@ static void test_polynomial_limit_at_infinity(void) {
   PASS();
 }
 
+static void test_exponential_limit_through_exponent(void) {
+  TEST("calculus: exponential limit through exponent");
+  ASSERT_TRUE(simplifies_to("lim(2^(1/x), x, 0-)", "0"));
+  ASSERT_TRUE(simplifies_to("lim(2^(1/x), x, 0+)", "inf"));
+  PASS();
+}
+
 void tests_calculus_mathtest(void) {
   test_symbolic_derivative_matches_finite_difference();
   test_integral_derivative_roundtrip_polynomial();
@@ -164,4 +171,5 @@ void tests_calculus_mathtest(void) {
   test_rational_polynomial_limit_at_negative_infinity();
   test_directional_numeric_limit_snaps_integer();
   test_polynomial_limit_at_infinity();
+  test_exponential_limit_through_exponent();
 }
