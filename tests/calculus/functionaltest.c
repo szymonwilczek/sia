@@ -906,6 +906,37 @@ static void test_limit_at_infinity(void) {
   PASS();
 }
 
+static void test_limit_infinity_over_infinity(void) {
+  TEST("limit: L'Hopital handles infinity over infinity");
+  ParseResult r = parse("(3*x^2 + 2*x) / (5*x^2 - 1)");
+  AstNode *target = ast_variable("inf", 3);
+  AstNode *result = sym_limit(r.root, "x", target);
+  ASSERT_TRUE(result != NULL);
+  result = sym_full_simplify(result);
+  char *str = ast_to_string(result);
+  ASSERT_STR_EQ(str, "3/5");
+  free(str);
+  ast_free(result);
+  ast_free(target);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_limit_nonzero_over_zero(void) {
+  TEST("limit: finite nonzero over zero returns infinity");
+  ParseResult r = parse("1/x^2");
+  AstNode *target = ast_number(0);
+  AstNode *result = sym_limit(r.root, "x", target);
+  ASSERT_TRUE(result != NULL);
+  char *str = ast_to_string(result);
+  ASSERT_STR_EQ(str, "inf");
+  free(str);
+  ast_free(result);
+  ast_free(target);
+  parse_result_free(&r);
+  PASS();
+}
+
 void tests_calculus_functional(void) {
   test_diff_constant();
   test_diff_variable();
@@ -963,4 +994,6 @@ void tests_calculus_functional(void) {
   test_limit_removable_rational();
   test_limit_repeated_lhopital();
   test_limit_at_infinity();
+  test_limit_infinity_over_infinity();
+  test_limit_nonzero_over_zero();
 }
