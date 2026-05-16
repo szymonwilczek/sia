@@ -397,17 +397,24 @@ static SolveResult solve_linear(Complex a, Complex b) {
 }
 
 static SolveResult solve_quadratic(Complex a, Complex b, Complex c) {
-  /* roots = (-b +/- sqrt(b^2 - 4ac)) / 2a */
+  /* roots = (-b +/- sqrt(b^2 - 4ac)) / 2a, but collapse the discriminant
+   * into three branches so a double root is reported once and the caller
+   * can tell apart real-distinct, double, and complex-pair cases. */
   Complex b2 = c_mul(b, b);
   Complex four_ac = c_mul(c_real(4.0), c_mul(a, c));
   Complex disc = c_sub(b2, four_ac);
-  Complex sq = c_sqrt(disc);
-
   Complex two_a = c_mul(c_real(2.0), a);
+
+  /* disc ~ 0  =>  single (double) root  -b/(2a) */
+  if (c_abs(disc) < 1e-9) {
+    Complex root = c_div(c_neg(b), two_a);
+    return ok_roots(&root, 1);
+  }
+
+  Complex sq = c_sqrt(disc);
   Complex roots[2];
   roots[0] = c_div(c_sub(c_neg(b), sq), two_a);
   roots[1] = c_div(c_add(c_neg(b), sq), two_a);
-
   return ok_roots(roots, 2);
 }
 
