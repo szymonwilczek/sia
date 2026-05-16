@@ -60,6 +60,22 @@ static void test_parser_nested(void) {
   PASS();
 }
 
+static void test_parser_power_right_associative(void) {
+  TEST("parser: exponentiation is right-associative");
+  ParseResult r = parse("2^3^2");
+  ASSERT_TRUE(r.root != NULL);
+  ASSERT_TRUE(r.error == NULL);
+  ASSERT_EQ(r.root->type, AST_BINOP);
+  ASSERT_EQ(r.root->as.binop.op, OP_POW);
+  ASSERT_TRUE(is_num_node(r.root->as.binop.left, 2.0));
+  ASSERT_EQ(r.root->as.binop.right->type, AST_BINOP);
+  ASSERT_EQ(r.root->as.binop.right->as.binop.op, OP_POW);
+  ASSERT_TRUE(is_num_node(r.root->as.binop.right->as.binop.left, 3.0));
+  ASSERT_TRUE(is_num_node(r.root->as.binop.right->as.binop.right, 2.0));
+  parse_result_free(&r);
+  PASS();
+}
+
 static void test_parser_unary_neg(void) {
   TEST("parser: unary negation -5");
   ParseResult r = parse("-5");
@@ -152,6 +168,7 @@ void tests_parser_functional(void) {
   test_parser_parens();
   test_parser_func_call();
   test_parser_nested();
+  test_parser_power_right_associative();
   test_parser_unary_neg();
   test_parser_error();
   test_parser_matrix_2x2();

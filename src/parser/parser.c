@@ -337,9 +337,9 @@ static AstNode *parse_power(Parser *p) {
   if (!left)
     return NULL;
 
-  while (match(p, TOK_CARET)) {
+  if (match(p, TOK_CARET)) {
     advance(p);
-    AstNode *right = parse_unary(p);
+    AstNode *right = parse_power(p);
     if (!right) {
       ast_free(left);
       return NULL;
