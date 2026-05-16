@@ -851,6 +851,61 @@ static void test_laplace_linearity(void) {
   PASS();
 }
 
+static void test_limit_sin_over_x(void) {
+  TEST("limit: lim(sin(x)/x, x, 0) = 1");
+  ParseResult r = parse("sin(x)/x");
+  AstNode *target = ast_number(0);
+  AstNode *result = sym_limit(r.root, "x", target);
+  ASSERT_TRUE(result != NULL);
+  ASSERT_TRUE(is_num_node(result, 1));
+  ast_free(result);
+  ast_free(target);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_limit_removable_rational(void) {
+  TEST("limit: lim((x^2-1)/(x-1), x, 1) = 2");
+  ParseResult r = parse("(x^2 - 1)/(x - 1)");
+  AstNode *target = ast_number(1);
+  AstNode *result = sym_limit(r.root, "x", target);
+  ASSERT_TRUE(result != NULL);
+  ASSERT_TRUE(is_num_node(result, 2));
+  ast_free(result);
+  ast_free(target);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_limit_repeated_lhopital(void) {
+  TEST("limit: repeated L'Hopital lim((1-cos(x))/x^2, x, 0) = 1/2");
+  ParseResult r = parse("(1 - cos(x))/(x^2)");
+  AstNode *target = ast_number(0);
+  AstNode *result = sym_limit(r.root, "x", target);
+  ASSERT_TRUE(result != NULL);
+  result = sym_full_simplify(result);
+  char *str = ast_to_string(result);
+  ASSERT_STR_EQ(str, "1/2");
+  free(str);
+  ast_free(result);
+  ast_free(target);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_limit_at_infinity(void) {
+  TEST("limit: lim(1/x, x, inf) = 0");
+  ParseResult r = parse("1/x");
+  AstNode *target = ast_variable("inf", 3);
+  AstNode *result = sym_limit(r.root, "x", target);
+  ASSERT_TRUE(result != NULL);
+  ASSERT_TRUE(is_num_node(result, 0));
+  ast_free(result);
+  ast_free(target);
+  parse_result_free(&r);
+  PASS();
+}
+
 void tests_calculus_functional(void) {
   test_diff_constant();
   test_diff_variable();
@@ -904,4 +959,8 @@ void tests_calculus_functional(void) {
   test_laplace_frequency_shift();
   test_laplace_t_times_f();
   test_laplace_linearity();
+  test_limit_sin_over_x();
+  test_limit_removable_rational();
+  test_limit_repeated_lhopital();
+  test_limit_at_infinity();
 }

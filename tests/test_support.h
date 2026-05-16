@@ -6,6 +6,7 @@
 #include "../eval.h"
 #include "../latex.h"
 #include "../lexer.h"
+#include "../limits.h"
 #include "../matrix.h"
 #include "../parser.h"
 #include "../solve.h"
