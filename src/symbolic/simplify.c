@@ -620,6 +620,76 @@ AstNode *sym_simplify(AstNode *node) {
         return ast_number_complex(folded);
       }
     }
+    /* sqrt(c * A) -> sqrt_extract(c) * sqrt(A) where the numeric factor c has
+     * its perfect-square part pulled out.
+     */
+    if (is_call1(node, "sqrt") && node->as.call.args[0]->type == AST_BINOP &&
+        node->as.call.args[0]->as.binop.op == OP_MUL) {
+      AstNode *arg = node->as.call.args[0];
+      AstNode *num_factor = NULL;
+      AstNode *rest = NULL;
+      if (is_num(arg->as.binop.left)) {
+        num_factor = arg->as.binop.left;
+        rest = arg->as.binop.right;
+      } else if (is_num(arg->as.binop.right)) {
+        num_factor = arg->as.binop.right;
+        rest = arg->as.binop.left;
+      }
+      if (num_factor && c_is_real(num_factor->as.number) &&
+          num_factor->as.number.re > 0) {
+        Complex c = num_factor->as.number;
+        Fraction f;
+        if (c_real_fraction(c, &f) && f.num > 0) {
+          long long p = f.num, q = f.den;
+          long long sp = 1, sq = 1;
+          for (long long i = 2; i * i <= p; i++)
+            while (p % (i * i) == 0) {
+              sp *= i;
+              p /= (i * i);
+            }
+          for (long long i = 2; i * i <= q; i++)
+            while (q % (i * i) == 0) {
+              sq *= i;
+              q /= (i * i);
+            }
+          if (sp > 1 || sq > 1) {
+            Fraction outer_f = fraction_make(sp, sq);
+            Fraction inner_f = fraction_make(p, q);
+            AstNode *outer = ast_number_complex(
+                c_from_fractions(outer_f, fraction_make(0, 1)));
+            AstNode *rest_clone = ast_clone(rest);
+            AstNode *inner_arg;
+            if (inner_f.num == 1 && inner_f.den == 1) {
+              inner_arg = rest_clone;
+            } else {
+              AstNode *inner_num = ast_number_complex(
+                  c_from_fractions(inner_f, fraction_make(0, 1)));
+              inner_arg = ast_binop(OP_MUL, inner_num, rest_clone);
+            }
+            AstNode *new_sqrt =
+                ast_func_call("sqrt", 4, (AstNode *[]){inner_arg}, 1);
+            ast_free(node);
+            return sym_simplify(ast_binop(OP_MUL, outer, new_sqrt));
+          }
+        }
+      }
+    }
+    /* sqrt(POW(A, 2*n)) -> A^n (for real A>=0)
+     * Handled here for non-bare powers so the quadratic formula's
+     * sqrt(B^2 - 4AC) shrinks sqrt(x^2) -> x within nested forms. */
+    if (is_call1(node, "sqrt") && node->as.call.args[0]->type == AST_BINOP &&
+        node->as.call.args[0]->as.binop.op == OP_POW &&
+        is_num(node->as.call.args[0]->as.binop.right) &&
+        c_is_real(node->as.call.args[0]->as.binop.right->as.number)) {
+      double e = node->as.call.args[0]->as.binop.right->as.number.re;
+      if (e == 2.0) {
+        AstNode *base = node->as.call.args[0]->as.binop.left;
+        AstNode *abs_call =
+            ast_func_call("abs", 3, (AstNode *[]){ast_clone(base)}, 1);
+        ast_free(node);
+        return sym_simplify(abs_call);
+      }
+    }
     /* sqrt(k^2 * m) -> k * sqrt(m) */
     if (is_call1(node, "sqrt") && is_num(node->as.call.args[0])) {
       Complex arg = node->as.call.args[0]->as.number;

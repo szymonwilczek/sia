@@ -411,34 +411,134 @@ static SolveResult solve_quadratic(Complex a, Complex b, Complex c) {
   return ok_roots(roots, 2);
 }
 
-static SolveResult solve_newton(const AstNode *f, const AstNode *df,
-                                const char *var, Complex x0, const SymTab *st) {
-  Complex x = x0;
+/* Snap a converged Newton root to its nearest integer when the residual
+ * is within 1e-9 - floating-point drift otherwise feeds garbage into the
+ * fraction printer and produces */
+static Complex newton_snap(Complex x) {
+  if (fabs(x.im) < 1e-12)
+    x.im = 0.0;
+  if (x.im == 0.0 && fabs(x.re - round(x.re)) < 1e-9)
+    x = c_real(round(x.re));
+  return x;
+}
+
+static int newton_iterate(const AstNode *f, const AstNode *df, const char *var,
+                          Complex start, const SymTab *st, Complex *out) {
+  Complex x = start;
+  int nudge_budget = 4;
+
   for (int i = 0; i < 200; i++) {
     Complex fv = eval_at(f, var, x, st);
-    if (isnan(fv.re))
-      return fail("evaluation error during Newton iteration");
+    if (isnan(fv.re)) {
+      /* domain error at this point - nudge and keep going */
+      if (nudge_budget-- <= 0)
+        return 0;
+      x = c_make(x.re + 0.5, x.im);
+      continue;
+    }
 
     if (c_abs(fv) < 1e-12) {
-      return ok_roots(&x, 1);
+      *out = newton_snap(x);
+      return 1;
     }
 
     Complex dfv = eval_at(df, var, x, st);
-    if (isnan(dfv.re) || c_abs(dfv) < 1e-15)
-      return fail("derivative zero or undefined during Newton iteration");
+    if (isnan(dfv.re) || c_abs(dfv) < 1e-12) {
+      /* derivative ~ 0: dont bail, nudge x off the stationary point and let the
+       * iteration continue */
+      if (nudge_budget-- <= 0)
+        return 0;
+      x = c_make(x.re + 0.5, x.im);
+      continue;
+    }
 
-    x = c_sub(x, c_div(fv, dfv));
+    Complex step = c_div(fv, dfv);
+    x = c_sub(x, step);
 
-    if (isinf(x.re) || isinf(x.im))
-      return fail("Newton iteration diverged");
+    if (isinf(x.re) || isinf(x.im) || isnan(x.re))
+      return 0;
   }
 
   Complex fv = eval_at(f, var, x, st);
-  if (c_abs(fv) < 1e-8) {
-    return ok_roots(&x, 1);
+  if (!isnan(fv.re) && c_abs(fv) < 1e-8) {
+    *out = newton_snap(x);
+    return 1;
+  }
+  return 0;
+}
+
+static int complex_already_seen(const Complex *list, size_t n, Complex v,
+                                double eps) {
+  for (size_t i = 0; i < n; i++)
+    if (c_abs(c_sub(list[i], v)) < eps)
+      return 1;
+  return 0;
+}
+
+static SolveResult solve_newton_single(const AstNode *f, const AstNode *df,
+                                       const char *var, Complex x0,
+                                       const SymTab *st) {
+  Complex root;
+  if (newton_iterate(f, df, var, x0, st, &root))
+    return ok_roots(&root, 1);
+  return fail("Newton method did not converge "
+              "(try different initial guess)");
+}
+
+/* multi-seed Newton for polynomial fallbacks. Newton finds the nearest root
+ * from a single start, which is hopeless for polynomials of degree >= 3. Run a
+ * grid of real seeds plus the caller's hint, deduplicate the converged roots,
+ * and return everything. */
+static SolveResult solve_newton_multi(const AstNode *f, const AstNode *df,
+                                      const char *var, Complex x0,
+                                      const SymTab *st) {
+  static const double default_seeds[] = {-5.0, -2.0, -1.0, -0.3, 0.5,
+                                         1.0,  2.0,  3.0,  5.0};
+  size_t seed_count = sizeof(default_seeds) / sizeof(default_seeds[0]);
+
+  Complex *found = malloc((seed_count + 1) * sizeof(Complex));
+  size_t found_count = 0;
+
+  Complex root;
+  if (newton_iterate(f, df, var, x0, st, &root))
+    found[found_count++] = root;
+
+  for (size_t i = 0; i < seed_count; i++) {
+    Complex seed = c_real(default_seeds[i]);
+    if (c_eq(seed, x0))
+      continue;
+    if (newton_iterate(f, df, var, seed, st, &root)) {
+      if (!complex_already_seen(found, found_count, root, 1e-5))
+        found[found_count++] = root;
+    }
   }
 
-  return fail("Newton method did not converge (try different initial guess)");
+  if (found_count == 0) {
+    free(found);
+    return fail("Newton method did not converge "
+                "(try different initial guess)");
+  }
+
+  SolveResult r = ok_roots(found, found_count);
+  free(found);
+  return r;
+}
+
+static int is_polynomial_shape(const AstNode *n) {
+  if (!n)
+    return 0;
+  switch (n->type) {
+  case AST_NUMBER:
+  case AST_VARIABLE:
+    return 1;
+  case AST_UNARY_NEG:
+    return is_polynomial_shape(n->as.unary.operand);
+  case AST_BINOP:
+    return is_polynomial_shape(n->as.binop.left) &&
+           is_polynomial_shape(n->as.binop.right);
+  default:
+    return 0;
+  }
 }
 
 static SolveResult sym_solve_core(const AstNode *expr, const char *var,
@@ -467,12 +567,10 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
   if (!expr || !var)
     return fail("null expression or variable");
 
-  /* AST_EQ(lhs, rhs)  =>  lhs - rhs (set to zero implicitly).
-   * Cross-multiply any top-level DIV on either side first to clear the
-   * outermost denominator without relying on the simplifier to cancel
-   * factors across a sum (e.g. 1/(1+1/x) = 2 becomes 1 = 2*(1+1/x)).
-   * Then reduce rational subexpressions so (x^2-1)/(x-1) collapses to
-   * 1+x before structure-mangling canonicalization. */
+  /* AST_EQ(lhs, rhs)  =>  lhs - rhs (set to zero implicitly). Cross-multiply
+   * any top-level DIV on either side first to clear the outermost denominator
+   * without relying on the simplifier to cancel factors across a sum. Then
+   * reduce rational subexpressions. */
   if (expr->type == AST_EQ) {
     AstNode *l = ast_clone(expr->as.eq.lhs);
     AstNode *r = ast_clone(expr->as.eq.rhs);
@@ -585,9 +683,9 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
     }
   }
 
-  /* Cross-multiplication leaves nested SUBs (e.g. (x^2-1) - 2*(x-1)) that
-   * extract_poly_coeffs cannot flatten through its OP_ADD-only walker.
-   * Run the full expand pipeline once so terms become a flat polynomial. */
+  /* cross-multiplication leaves nested SUBs that extract_poly_coeffs cannot
+   * flatten through its OP_ADD-only walker. Run the full expand pipeline once
+   * so terms become a flat polynomial. */
   {
     AstNode *expanded = sym_expand(simplified);
     if (expanded) {
@@ -599,13 +697,11 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
     simplified = sym_full_simplify(simplified);
   }
 
-  /* If the simplified form still has var-dependent denominators, multiply
+  /* if the simplified form still has var-dependent denominators, multiply
    * through with cancellation so the rational equation becomes a
-   * polynomial. Iterate because a single pass may leave a nested rational
-   * intact (e.g. (x+1)*(1+x^-1)^-1 — the bases x+1 and 1+x^-1 don't
-   * structurally match for power cancellation). Each pass clears another
-   * level; bail at 8 to avoid runaway cost. Extraneous roots are stripped
-   * later by filter_extraneous. */
+   * polynomial. iterate because a single pass may leave a nested rational
+   * intact. each pass clears another level; bail at 8 to avoid runaway cost.
+   * extraneous roots are stripped later by filter_extraneous. */
   for (int pass = 0; pass < 8; pass++) {
     DenomList denoms = {0};
     collect_denominators(simplified, var, &denoms);
@@ -651,10 +747,10 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
     return result;
   }
 
-  /* Symbolic polynomial isolators: when extract_poly_coeffs cannot read the
+  /* symbolic polynomial isolators: when extract_poly_coeffs cannot read the
    * numeric coefficients (because A/B/C carry free symbols other than
    * `var`), recover them via evaluation-point interpolation:
-   *   linear   A*x + B           -> B = f(0), A = f(1) - f(0)
+   *   linear    A*x + B          -> B = f(0), A = f(1) - f(0)
    *   quadratic A*x^2 + B*x + C  -> C = f(0),
    *                                 A = (f(1) + f(-1))/2 - C,
    *                                 B = (f(1) - f(-1))/2
@@ -675,7 +771,7 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
     ast_free(node_mone);
     ast_free(node_two);
 
-    /* ---- linear ---- */
+    /* linear */
     if (f0 && f1 && f2) {
       AstNode *A =
           sym_full_simplify(ast_binop(OP_SUB, ast_clone(f1), ast_clone(f0)));
@@ -713,7 +809,7 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
       ast_free(B);
     }
 
-    /* ---- quadratic ---- */
+    /* quadratic */
     if (f0 && f1 && fm1 && f2) {
       AstNode *sum =
           sym_full_simplify(ast_binop(OP_ADD, ast_clone(f1), ast_clone(fm1)));
@@ -762,7 +858,7 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
         ast_free(f2);
         ast_free(simplified);
 
-        /* try eval — if both eval cleanly, return as numeric roots */
+        /* if both eval cleanly, return as numeric roots */
         EvalResult er_p = eval(root_plus, st);
         EvalResult er_m = eval(root_minus, st);
         if (er_p.ok && er_m.ok) {
@@ -810,7 +906,10 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
   }
   df = sym_simplify(df);
 
-  result = solve_newton(simplified, df, var, x0, st);
+  if (is_polynomial_shape(simplified))
+    result = solve_newton_multi(simplified, df, var, x0, st);
+  else
+    result = solve_newton_single(simplified, df, var, x0, st);
   ast_free(df);
   ast_free(simplified);
   return result;

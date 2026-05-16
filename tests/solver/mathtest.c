@@ -293,6 +293,51 @@ static void test_solver_log_compound_argument(void) {
   PASS();
 }
 
+static void test_solver_cubic_multi_seed_newton(void) {
+  TEST("solve: cubic x^3 - 6*x^2 + 11*x - 6 -> {1, 2, 3}");
+  ParseResult pr = parse("x^3 - 6*x^2 + 11*x - 6");
+  ASSERT_TRUE(pr.root != NULL);
+
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 3);
+  ASSERT_TRUE(complex_in(r.roots, r.count, c_real(1.0), 1e-7));
+  ASSERT_TRUE(complex_in(r.roots, r.count, c_real(2.0), 1e-7));
+  ASSERT_TRUE(complex_in(r.roots, r.count, c_real(3.0), 1e-7));
+
+  /* integer snapping should pin them to exact integers */
+  for (size_t i = 0; i < r.count; i++) {
+    double v = r.roots[i].re;
+    ASSERT_NEAR(v, round(v), 1e-12);
+  }
+
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solver_quartic_with_stationary_origin(void) {
+  TEST("solve: quartic x^4 - 5*x^2 + 4 survives f'(0) = 0");
+  ParseResult pr = parse("x^4 - 5*x^2 + 4");
+  ASSERT_TRUE(pr.root != NULL);
+
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 4);
+  ASSERT_TRUE(complex_in(r.roots, r.count, c_real(1.0), 1e-7));
+  ASSERT_TRUE(complex_in(r.roots, r.count, c_real(-1.0), 1e-7));
+  ASSERT_TRUE(complex_in(r.roots, r.count, c_real(2.0), 1e-7));
+  ASSERT_TRUE(complex_in(r.roots, r.count, c_real(-2.0), 1e-7));
+
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
 void tests_solver_mathtest(void) {
   test_solver_roots_satisfy_polynomial();
   test_solver_newton_root_satisfies_transcendental();
@@ -307,4 +352,6 @@ void tests_solver_mathtest(void) {
   test_solver_symbolic_coeffs_resolve_with_symtab();
   test_solver_nested_fraction_equation();
   test_solver_log_compound_argument();
+  test_solver_cubic_multi_seed_newton();
+  test_solver_quartic_with_stationary_origin();
 }
