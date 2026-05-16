@@ -1244,6 +1244,10 @@ AstNode *sym_simplify(AstNode *node) {
     break;
 
   case OP_POW:
+    if (is_inf_node(L) && is_number(R, 0)) {
+      ast_free(node);
+      return ast_undefined();
+    }
     if (is_number(R, 0)) {
       ast_free(node);
       return ast_number(1);

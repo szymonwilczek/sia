@@ -115,7 +115,13 @@ static void test_infinite_power_simplification(void) {
   ASSERT_TRUE(simplifies_to("2^inf", "inf"));
   ASSERT_TRUE(simplifies_to("inf^inf", "inf"));
   ASSERT_TRUE(simplifies_to("2^-inf", "0"));
-  ASSERT_TRUE(simplifies_to("inf^0", "1"));
+  ASSERT_TRUE(simplifies_to("inf^0", "undefined"));
+  PASS();
+}
+
+static void test_rational_polynomial_limit_at_negative_infinity(void) {
+  TEST("calculus: rational polynomial limit at -inf");
+  ASSERT_TRUE(simplifies_to("lim((x^3 - x) / (x^2 + 1), x, -inf)", "-inf"));
   PASS();
 }
 
@@ -135,4 +141,5 @@ void tests_calculus_mathtest(void) {
   test_signed_infinity_arithmetic();
   test_infinite_power_simplification();
   test_directional_abs_denominator_limit();
+  test_rational_polynomial_limit_at_negative_infinity();
 }

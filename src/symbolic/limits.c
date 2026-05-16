@@ -58,6 +58,15 @@ static int inf_sign(const AstNode *node) {
   return 0;
 }
 
+static int finite_real_number(const AstNode *node, double *out) {
+  if (!node || node->type != AST_NUMBER || !c_is_real(node->as.number) ||
+      !isfinite(node->as.number.re))
+    return 0;
+  if (out)
+    *out = node->as.number.re;
+  return 1;
+}
+
 static int contains_inf(const AstNode *node) {
   if (!node)
     return 0;
@@ -198,6 +207,137 @@ static AstNode *directed_quotient_probe(const AstNode *expr, const char *var,
     return ast_number(v2);
 
   return NULL;
+}
+
+static int real_pow_int(double base, int exp, double *out) {
+  double result = 1.0;
+  if (exp < 0)
+    return 0;
+  for (int i = 0; i < exp; i++)
+    result *= base;
+  if (!isfinite(result))
+    return 0;
+  *out = result;
+  return 1;
+}
+
+static int polynomial_leading_term(const AstNode *expr, const char *var,
+                                   int *degree, double *coeff) {
+  if (!expr || !var || !degree || !coeff)
+    return 0;
+
+  switch (expr->type) {
+  case AST_NUMBER:
+    if (!finite_real_number(expr, coeff))
+      return 0;
+    *degree = 0;
+    return 1;
+
+  case AST_VARIABLE:
+    if (strcmp(expr->as.variable, var) != 0)
+      return 0;
+    *degree = 1;
+    *coeff = 1.0;
+    return 1;
+
+  case AST_UNARY_NEG:
+    if (!polynomial_leading_term(expr->as.unary.operand, var, degree, coeff))
+      return 0;
+    *coeff = -*coeff;
+    return 1;
+
+  case AST_BINOP: {
+    int ld = 0, rd = 0;
+    double lc = 0.0, rc = 0.0;
+    switch (expr->as.binop.op) {
+    case OP_ADD:
+    case OP_SUB:
+      if (!polynomial_leading_term(expr->as.binop.left, var, &ld, &lc) ||
+          !polynomial_leading_term(expr->as.binop.right, var, &rd, &rc))
+        return 0;
+      if (expr->as.binop.op == OP_SUB)
+        rc = -rc;
+      if (ld > rd) {
+        *degree = ld;
+        *coeff = lc;
+        return 1;
+      }
+      if (rd > ld) {
+        *degree = rd;
+        *coeff = rc;
+        return 1;
+      }
+      if (lc + rc == 0.0)
+        return 0;
+      *degree = ld;
+      *coeff = lc + rc;
+      return 1;
+
+    case OP_MUL:
+      if (!polynomial_leading_term(expr->as.binop.left, var, &ld, &lc) ||
+          !polynomial_leading_term(expr->as.binop.right, var, &rd, &rc))
+        return 0;
+      *degree = ld + rd;
+      *coeff = lc * rc;
+      return isfinite(*coeff);
+
+    case OP_POW: {
+      double exp_value = 0.0;
+      int exp = 0;
+      if (!finite_real_number(expr->as.binop.right, &exp_value) ||
+          exp_value < 0.0 || exp_value != (int)exp_value)
+        return 0;
+      exp = (int)exp_value;
+      if (!polynomial_leading_term(expr->as.binop.left, var, &ld, &lc) ||
+          !real_pow_int(lc, exp, coeff))
+        return 0;
+      *degree = ld * exp;
+      return 1;
+    }
+
+    case OP_DIV:
+      return 0;
+    }
+    return 0;
+  }
+
+  case AST_FUNC_CALL:
+  case AST_LIMIT:
+  case AST_MATRIX:
+  case AST_EQ:
+  case AST_INFINITY:
+  case AST_UNDEFINED:
+    return 0;
+  }
+  return 0;
+}
+
+static AstNode *limit_rational_polynomial_at_infinity(const AstNode *num,
+                                                      const AstNode *den,
+                                                      const char *var,
+                                                      const AstNode *target) {
+  int target_sign = inf_sign(target);
+  int nd = 0, dd = 0;
+  double nc = 0.0, dc = 0.0;
+
+  if (target_sign == 0 || !polynomial_leading_term(num, var, &nd, &nc) ||
+      !polynomial_leading_term(den, var, &dd, &dc) || dc == 0.0)
+    return NULL;
+
+  if (nd < dd)
+    return ast_number(0);
+
+  double ratio = nc / dc;
+  if (!isfinite(ratio) || ratio == 0.0)
+    return NULL;
+
+  if (nd == dd)
+    return ast_number(ratio);
+
+  int sign = ratio < 0.0 ? -1 : 1;
+  if (target_sign < 0 && ((nd - dd) % 2 != 0))
+    sign = -sign;
+  return ast_infinity(sign);
 }
 
 static AstNode *directed_abs_denominator_limit(const AstNode *num,
@@ -362,6 +502,15 @@ static LimitStatus direct_fraction_substitution(const AstNode *expr,
   AstNode *den = NULL;
   if (!split_fraction(expr, &num, &den))
     return LIMIT_UNSUPPORTED;
+
+  AstNode *poly_inf =
+      limit_rational_polynomial_at_infinity(num, den, var, target);
+  if (poly_inf) {
+    ast_free(num);
+    ast_free(den);
+    *out = poly_inf;
+    return LIMIT_DIRECT_OK;
+  }
 
   LimitClass num_class = classify_at(num, var, target);
   LimitClass den_class = classify_at(den, var, target);

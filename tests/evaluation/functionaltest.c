@@ -43,8 +43,7 @@ static void test_eval_infinite_power(void) {
 
   ParseResult r3 = parse("inf^0");
   EvalResult e3 = eval(r3.root, NULL);
-  ASSERT_TRUE(e3.ok);
-  ASSERT_CNEAR(e3.value, c_real(1.0), 1e-9);
+  ASSERT_TRUE(!e3.ok);
   eval_result_free(&e3);
   parse_result_free(&r3);
 

@@ -32,7 +32,7 @@ static EvalResult eval_infinite_power(Complex base, Complex exp, int *handled) {
   *handled = 1;
 
   if (c_is_zero(exp))
-    return ok_real(1.0);
+    return base_inf ? fail("undefined infinite power") : ok_real(1.0);
 
   if (exp_inf) {
     if (base_inf)
