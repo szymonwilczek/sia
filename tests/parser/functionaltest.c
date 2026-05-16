@@ -1,5 +1,5 @@
-#include "../test_support.h"
 #include "../test_suites.h"
+#include "../test_support.h"
 
 static void test_parser_number(void) {
   TEST("parser: simple number");
@@ -11,7 +11,6 @@ static void test_parser_number(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_parser_precedence(void) {
   TEST("parser: operator precedence 2+2*2");
@@ -26,7 +25,6 @@ static void test_parser_precedence(void) {
   PASS();
 }
 
-
 static void test_parser_parens(void) {
   TEST("parser: parentheses (2+2)*2");
   ParseResult r = parse("(2+2)*2");
@@ -39,7 +37,6 @@ static void test_parser_parens(void) {
   PASS();
 }
 
-
 static void test_parser_func_call(void) {
   TEST("parser: function call sin(3.14)");
   ParseResult r = parse("sin(3.14)");
@@ -50,7 +47,6 @@ static void test_parser_func_call(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_parser_nested(void) {
   TEST("parser: nested expression 2^3+1");
@@ -64,7 +60,6 @@ static void test_parser_nested(void) {
   PASS();
 }
 
-
 static void test_parser_unary_neg(void) {
   TEST("parser: unary negation -5");
   ParseResult r = parse("-5");
@@ -74,7 +69,6 @@ static void test_parser_unary_neg(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_parser_error(void) {
   TEST("parser: error on malformed input");
@@ -86,7 +80,6 @@ static void test_parser_error(void) {
 }
 
 /* AST */
-
 
 static void test_parser_matrix_2x2(void) {
   TEST("parser: matrix literal [1,2;3,4]");
@@ -104,7 +97,6 @@ static void test_parser_matrix_2x2(void) {
   PASS();
 }
 
-
 static void test_parser_matrix_1xN(void) {
   TEST("parser: row matrix [1,2,3]");
   ParseResult r = parse("[1,2,3]");
@@ -116,7 +108,6 @@ static void test_parser_matrix_1xN(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_parser_matrix_symbolic(void) {
   TEST("parser: symbolic matrix [sin(x), 1]");
@@ -132,7 +123,6 @@ static void test_parser_matrix_symbolic(void) {
   PASS();
 }
 
-
 static void test_parser_factorial(void) {
   TEST("parser: postfix factorial 5!");
   ParseResult r = parse("5!");
@@ -144,6 +134,17 @@ static void test_parser_factorial(void) {
   PASS();
 }
 
+static void test_parser_limit(void) {
+  TEST("parser: limit expression lim(sin(x)/x, x, 0)");
+  ParseResult r = parse("lim(sin(x)/x, x, 0)");
+  ASSERT_TRUE(r.root != NULL);
+  ASSERT_TRUE(r.error == NULL);
+  ASSERT_EQ(r.root->type, AST_LIMIT);
+  ASSERT_STR_EQ(r.root->as.limit.var, "x");
+  ASSERT_TRUE(is_num_node(r.root->as.limit.target, 0.0));
+  parse_result_free(&r);
+  PASS();
+}
 
 void tests_parser_functional(void) {
   test_parser_number();
@@ -157,4 +158,5 @@ void tests_parser_functional(void) {
   test_parser_matrix_1xN();
   test_parser_matrix_symbolic();
   test_parser_factorial();
+  test_parser_limit();
 }

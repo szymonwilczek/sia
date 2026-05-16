@@ -218,6 +218,23 @@ static AstNode *parse_primary(Parser *p) {
         return NULL;
       }
 
+      if ((len == 3 && strncmp(name, "lim", 3) == 0) ||
+          (len == 5 && strncmp(name, "limit", 5) == 0)) {
+        if (nargs != 3 || args[1]->type != AST_VARIABLE) {
+          set_error(p, "lim expects arguments: lim(expr, var, target)");
+          for (size_t i = 0; i < nargs; i++)
+            ast_free(args[i]);
+          return NULL;
+        }
+
+        AstNode *limit = ast_limit(args[0], args[1]->as.variable,
+                                   strlen(args[1]->as.variable), args[2]);
+        args[0] = NULL;
+        args[2] = NULL;
+        ast_free(args[1]);
+        return limit;
+      }
+
       return ast_func_call(name, len, args, nargs);
     }
 
