@@ -244,6 +244,14 @@ static void test_simplify_sqrt_power_domain_guard(void) {
   ast_free(s3);
   parse_result_free(&r3);
 
+  ParseResult r4 = parse("sqrt(x^2)");
+  AstNode *s4 = sym_full_simplify(ast_clone(r4.root));
+  char *str4 = ast_to_string(s4);
+  ASSERT_STR_EQ(str4, "abs(x)");
+  free(str4);
+  ast_free(s4);
+  parse_result_free(&r4);
+
   PASS();
 }
 

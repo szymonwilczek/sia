@@ -856,9 +856,7 @@ AstNode *sym_simplify(AstNode *node) {
         }
       }
     }
-    /* sqrt(POW(A, 2*n)) -> A^n (for real A>=0)
-     * Handled here for non-bare powers so the quadratic formula's
-     * sqrt(B^2 - 4AC) shrinks sqrt(x^2) -> x within nested forms. */
+    /* sqrt(A^2) -> abs(A) is valid over the real domain without assumptions. */
     if (is_call1(node, "sqrt") && node->as.call.args[0]->type == AST_BINOP &&
         node->as.call.args[0]->as.binop.op == OP_POW &&
         is_num(node->as.call.args[0]->as.binop.right) &&
