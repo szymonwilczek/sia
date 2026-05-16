@@ -28,6 +28,13 @@ static int is_call1(const AstNode *n, const char *name) {
          strcmp(n->as.call.name, name) == 0;
 }
 
+static int is_laplace_call(const AstNode *n) {
+  return n && n->type == AST_FUNC_CALL &&
+         strcmp(n->as.call.name, "laplace") == 0 && n->as.call.nargs == 3 &&
+         n->as.call.args[1]->type == AST_VARIABLE &&
+         n->as.call.args[2]->type == AST_VARIABLE;
+}
+
 static int is_nonnegative_integer_node(const AstNode *n, long long *out) {
   double rounded = 0.0;
 
@@ -655,6 +662,15 @@ AstNode *sym_simplify(AstNode *node) {
   case AST_FUNC_CALL:
     for (size_t i = 0; i < node->as.call.nargs; i++)
       node->as.call.args[i] = sym_simplify(node->as.call.args[i]);
+    if (is_laplace_call(node)) {
+      AstNode *result =
+          sym_laplace(node->as.call.args[0], node->as.call.args[1]->as.variable,
+                      node->as.call.args[2]->as.variable);
+      if (result) {
+        ast_free(node);
+        return result;
+      }
+    }
     if (factorial_is_call(node))
       return factorial_simplify_call(node);
     if (trig_kind(node) != TRIG_KIND_NONE)

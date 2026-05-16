@@ -1,4 +1,4 @@
-VERSION   := 0.8.5
+VERSION   := 0.8.6
 CODENAME  := "Infinite Ito"
 
 CC      ?= gcc

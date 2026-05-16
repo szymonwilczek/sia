@@ -404,6 +404,23 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
       }
     }
 
+    /* laplace(expr, t, s) */
+    if (strcmp(node->as.call.name, "laplace") == 0 &&
+        node->as.call.nargs == 3 &&
+        node->as.call.args[1]->type == AST_VARIABLE &&
+        node->as.call.args[2]->type == AST_VARIABLE) {
+      AstNode *expr = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
+      expr = substitute_vars(expr, st);
+      AstNode *result = sym_laplace(expr, node->as.call.args[1]->as.variable,
+                                    node->as.call.args[2]->as.variable);
+      ast_free(expr);
+      if (result) {
+        ast_free(node);
+        result = sym_full_simplify(result);
+        return resolve_symbolic(result, st);
+      }
+    }
+
     /* det(matrix) */
     if (strcmp(node->as.call.name, "det") == 0 && node->as.call.nargs == 1) {
       AstNode *arg = resolve_symbolic(ast_clone(node->as.call.args[0]), st);
