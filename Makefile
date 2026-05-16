@@ -1,5 +1,5 @@
-VERSION   := 0.9.0
-CODENAME  := Jordan's Jewel
+VERSION   := 0.9.1
+CODENAME  := "Jordan's Jewel"
 
 CC      ?= gcc
 CFLAGS  := -std=c11 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
@@ -10,7 +10,7 @@ CFLAGS  := -std=c11 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
 LDFLAGS :=
 LDLIBS  := -lm
 
-SRC     := lexer.c ast.c parser.c eval.c symbolic.c canonical.c \
+SRC     := lexer.c ast.c parser.c eval.c symbolic.c limits.c canonical.c \
 		   symtab.c matrix.c latex.c fractions.c logarithm.c factorial.c \
 		   number_theory.c trigonometry/trigonometry.c \
 		   solve.c main.c
@@ -18,7 +18,7 @@ OBJ     := $(SRC:.c=.o)
 DEP     := $(SRC:.c=.d)
 BIN     := sia
 
-CORE    := lexer.c ast.c parser.c eval.c symbolic.c canonical.c \
+CORE    := lexer.c ast.c parser.c eval.c symbolic.c limits.c canonical.c \
 		   symtab.c matrix.c latex.c fractions.c logarithm.c factorial.c \
 		   number_theory.c trigonometry/trigonometry.c \
 		   solve.c
