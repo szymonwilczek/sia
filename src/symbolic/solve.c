@@ -255,11 +255,20 @@ SolveResult sym_solve(const AstNode *expr, const char *var, Complex x0,
                       const SymTab *st) {
   SolveResult result;
   AstNode *simplified = NULL;
+  AstNode *normalized = NULL;
 
   if (!expr || !var)
     return fail("null expression or variable");
 
-  simplified = sym_simplify(ast_clone(expr));
+  /* AST_EQ(lhs, rhs)  =>  lhs - rhs (set to zero implicitly) */
+  if (expr->type == AST_EQ) {
+    normalized = ast_binop(OP_SUB, ast_clone(expr->as.eq.lhs),
+                           ast_clone(expr->as.eq.rhs));
+  } else {
+    normalized = ast_clone(expr);
+  }
+
+  simplified = sym_simplify(normalized);
   if (!simplified)
     return fail("failed to simplify expression before solving");
 
