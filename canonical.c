@@ -779,6 +779,150 @@ static void poly_gcd_coeffs(const Complex *a, int deg_a, const Complex *b,
   *deg_gcd = dp;
 }
 
+static int canonical_poly_exact_div(const CanonicalPolynomial *numer,
+                                    const CanonicalPolynomial *denom,
+                                    const char *var,
+                                    CanonicalPolynomial *quotient) {
+  CanonicalPolynomial rem = {0};
+  int deg_n, deg_d;
+
+  for (size_t i = 0; i < numer->count; i++) {
+    CanonicalTerm copy = {0};
+    if (!canonical_term_copy(&copy, &numer->terms[i]) ||
+        !canonical_poly_append_owned(&rem, &copy)) {
+      canonical_term_free(&copy);
+      canonical_polynomial_free(&rem);
+      return 0;
+    }
+  }
+  canonical_poly_normalize(&rem);
+
+  deg_d = poly_degree(denom, var);
+  if (deg_d == 0 && denom->count == 1 && !c_is_zero(denom->terms[0].coeff)) {
+    Complex inv = c_div(c_real(1.0), denom->terms[0].coeff);
+    for (size_t i = 0; i < rem.count; i++)
+      rem.terms[i].coeff = c_mul(rem.terms[i].coeff, inv);
+    *quotient = rem;
+    return 1;
+  }
+
+  *quotient = (CanonicalPolynomial){0};
+
+  for (;;) {
+    canonical_poly_normalize(&rem);
+    if (rem.count == 0)
+      break;
+
+    deg_n = poly_degree(&rem, var);
+    if (deg_n < deg_d) {
+      canonical_polynomial_free(&rem);
+      canonical_polynomial_free(quotient);
+      return 0;
+    }
+
+    /* find leading term of remainder (highest degree in var) */
+    int lt_idx = -1;
+    int lt_deg = -1;
+    for (size_t i = 0; i < rem.count; i++) {
+      int d = 0;
+      for (size_t j = 0; j < rem.terms[i].degree_count; j++) {
+        if (strcmp(rem.terms[i].degrees[j].var, var) == 0)
+          d = rem.terms[i].degrees[j].degree;
+      }
+      if (d > lt_deg) {
+        lt_deg = d;
+        lt_idx = (int)i;
+      }
+    }
+    if (lt_idx < 0)
+      break;
+
+    /* find leading term of divisor */
+    int ld_idx = -1;
+    int ld_deg = -1;
+    for (size_t i = 0; i < denom->count; i++) {
+      int d = 0;
+      for (size_t j = 0; j < denom->terms[i].degree_count; j++) {
+        if (strcmp(denom->terms[i].degrees[j].var, var) == 0)
+          d = denom->terms[i].degrees[j].degree;
+      }
+      if (d > ld_deg) {
+        ld_deg = d;
+        ld_idx = (int)i;
+      }
+    }
+    if (ld_idx < 0)
+      break;
+
+    /* quotient term = lt_rem / lt_denom */
+    CanonicalTerm qt = {0};
+    qt.coeff = c_div(rem.terms[lt_idx].coeff, denom->terms[ld_idx].coeff);
+
+    /* degrees = rem_degrees - denom_degrees */
+    for (size_t j = 0; j < rem.terms[lt_idx].degree_count; j++) {
+      if (!canonical_term_add_degree(&qt, rem.terms[lt_idx].degrees[j].var,
+                                     rem.terms[lt_idx].degrees[j].degree)) {
+        canonical_term_free(&qt);
+        canonical_polynomial_free(&rem);
+        canonical_polynomial_free(quotient);
+        return 0;
+      }
+    }
+    for (size_t j = 0; j < denom->terms[ld_idx].degree_count; j++) {
+      if (!canonical_term_add_degree(&qt, denom->terms[ld_idx].degrees[j].var,
+                                     -denom->terms[ld_idx].degrees[j].degree)) {
+        canonical_term_free(&qt);
+        canonical_polynomial_free(&rem);
+        canonical_polynomial_free(quotient);
+        return 0;
+      }
+    }
+
+    /* check no negative degrees in quotient term */
+    for (size_t j = 0; j < qt.degree_count; j++) {
+      if (qt.degrees[j].degree < 0) {
+        canonical_term_free(&qt);
+        canonical_polynomial_free(&rem);
+        canonical_polynomial_free(quotient);
+        return 0;
+      }
+    }
+
+    /* subtract qt * denom from remainder */
+    for (size_t i = 0; i < denom->count; i++) {
+      CanonicalTerm product = {0};
+      if (!canonical_poly_multiply_terms(&product, &qt, &denom->terms[i])) {
+        canonical_term_free(&product);
+        canonical_term_free(&qt);
+        canonical_polynomial_free(&rem);
+        canonical_polynomial_free(quotient);
+        return 0;
+      }
+      product.coeff = c_neg(product.coeff);
+      if (!canonical_poly_append_owned(&rem, &product)) {
+        canonical_term_free(&product);
+        canonical_term_free(&qt);
+        canonical_polynomial_free(&rem);
+        canonical_polynomial_free(quotient);
+        return 0;
+      }
+    }
+
+    if (!canonical_poly_append_owned(quotient, &qt)) {
+      canonical_term_free(&qt);
+      canonical_polynomial_free(&rem);
+      canonical_polynomial_free(quotient);
+      return 0;
+    }
+
+    canonical_poly_normalize(&rem);
+  }
+
+  canonical_polynomial_free(&rem);
+  canonical_poly_normalize(quotient);
+  return 1;
+}
+
 AstNode *ast_poly_gcd_reduce(const AstNode *numer, const AstNode *denom) {
   CanonicalPolynomial pn = {0}, pd = {0};
   const char *var_n = NULL, *var_d = NULL;
@@ -795,8 +939,25 @@ AstNode *ast_poly_gcd_reduce(const AstNode *numer, const AstNode *denom) {
   canonical_poly_normalize(&pn);
   canonical_poly_normalize(&pd);
 
-  if (!poly_is_univariate(&pn, &var_n) || !poly_is_univariate(&pd, &var_d))
+  if (!poly_is_univariate(&pd, &var_d))
     goto fail;
+
+  if (!poly_is_univariate(&pn, &var_n)) {
+    /* multivariate numerator, univariate denominator: try exact division */
+    CanonicalPolynomial quot = {0};
+    if (!canonical_poly_exact_div(&pn, &pd, var_d, &quot))
+      goto fail;
+    if (quot.count == 0) {
+      result = ast_number(0);
+    } else {
+      for (size_t i = 0; i < quot.count; i++) {
+        AstNode *t = canonical_term_to_ast(&quot.terms[i]);
+        result = result ? ast_binop(OP_ADD, result, t) : t;
+      }
+    }
+    canonical_polynomial_free(&quot);
+    goto fail; /* cleanup pn, pd */
+  }
 
   if (var_n && var_d && strcmp(var_n, var_d) != 0)
     goto fail;

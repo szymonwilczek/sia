@@ -1835,6 +1835,18 @@ AstNode *sym_full_simplify(AstNode *node) {
   if (!node)
     return NULL;
 
+  if (node->type == AST_MATRIX) {
+    size_t total = node->as.matrix.rows * node->as.matrix.cols;
+    AstNode **elems = malloc(total * sizeof(AstNode *));
+    for (size_t i = 0; i < total; i++)
+      elems[i] = sym_full_simplify(ast_clone(node->as.matrix.elements[i]));
+    AstNode *result =
+        ast_matrix(elems, node->as.matrix.rows, node->as.matrix.cols);
+    free(elems);
+    ast_free(node);
+    return result;
+  }
+
   current = sym_full_simplify_once(node);
   for (int pass = 0; pass < 3; pass++) {
     AstNode *next = sym_full_simplify_once(ast_clone(current));
@@ -1989,6 +2001,16 @@ AstNode *sym_expand(AstNode *node) {
 AstNode *sym_diff(const AstNode *expr, const char *var) {
   if (!expr)
     return ast_number(0);
+
+  if (expr->type == AST_BINOP && expr->as.binop.op == OP_DIV) {
+    AstNode *reduced =
+        ast_poly_gcd_reduce(expr->as.binop.left, expr->as.binop.right);
+    if (reduced) {
+      AstNode *result = sym_diff(reduced, var);
+      ast_free(reduced);
+      return result;
+    }
+  }
 
   switch (expr->type) {
   case AST_NUMBER:
