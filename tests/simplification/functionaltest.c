@@ -289,6 +289,57 @@ static void test_expand(void) {
   PASS();
 }
 
+static void test_poly_gcd_basic(void) {
+  TEST("simplify: (x^5+2x^3+x)/(x^4+2x^2+1) -> x");
+  ParseResult r = parse("(x^5 + 2*x^3 + x) / (x^4 + 2*x^2 + 1)");
+  AstNode *s = sym_full_simplify(ast_clone(r.root));
+  ASSERT_EQ(s->type, AST_VARIABLE);
+  ASSERT_STR_EQ(s->as.variable, "x");
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_poly_gcd_linear(void) {
+  TEST("simplify: (x^2-1)/(x-1) -> 1 + x");
+  ParseResult r = parse("(x^2 - 1) / (x - 1)");
+  AstNode *s = sym_full_simplify(ast_clone(r.root));
+  char *str = ast_to_string(s);
+  ASSERT_STR_EQ(str, "1 + x");
+  free(str);
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_poly_gcd_quadratic(void) {
+  TEST("simplify: (x^3+x)/(x^2+1) -> x");
+  ParseResult r = parse("(x^3 + x) / (x^2 + 1)");
+  AstNode *s = sym_full_simplify(ast_clone(r.root));
+  ASSERT_EQ(s->type, AST_VARIABLE);
+  ASSERT_STR_EQ(s->as.variable, "x");
+  ast_free(s);
+  parse_result_free(&r);
+  PASS();
+}
+
+static void test_common_denom_grouping(void) {
+  TEST("simplify: d/dx(int(x/(x^2+1)^2))*(x^2+1)^2 -> x");
+  ParseResult r = parse("x / (x^2 + 1)^2");
+  ParseResult r2 = parse("(x^2 + 1)^2");
+  AstNode *integral = sym_integrate(r.root, "x");
+  AstNode *deriv = sym_diff(integral, "x");
+  AstNode *expr = ast_binop(OP_MUL, deriv, ast_clone(r2.root));
+  AstNode *s = sym_full_simplify(expr);
+  ASSERT_EQ(s->type, AST_VARIABLE);
+  ASSERT_STR_EQ(s->as.variable, "x");
+  ast_free(s);
+  ast_free(integral);
+  parse_result_free(&r);
+  parse_result_free(&r2);
+  PASS();
+}
+
 void tests_simplification_functional(void) {
   test_simplify_zero_mul();
   test_simplify_identity_add();
@@ -314,4 +365,8 @@ void tests_simplification_functional(void) {
   test_full_simplify_conjugate_radical_squares();
   test_full_simplify_common_inverse_factor();
   test_expand();
+  test_poly_gcd_basic();
+  test_poly_gcd_linear();
+  test_poly_gcd_quadratic();
+  test_common_denom_grouping();
 }
