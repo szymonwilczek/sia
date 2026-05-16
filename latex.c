@@ -426,6 +426,15 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
     break;
   }
 
+  case AST_LIMIT:
+    sb_puts(sb, "\\lim_{");
+    sb_puts(sb, node->as.limit.var);
+    sb_puts(sb, " \\to ");
+    latex_node(node->as.limit.target, sb, NULL, 0);
+    sb_puts(sb, "} ");
+    latex_node(node->as.limit.expr, sb, NULL, 0);
+    break;
+
   case AST_MATRIX: {
     sb_puts(sb, "\\begin{pmatrix}\n");
     for (size_t r = 0; r < node->as.matrix.rows; r++) {

@@ -244,6 +244,8 @@ EvalResult eval(const AstNode *node, const SymTab *st) {
     }
     return eval_call(node->as.call.name, args, node->as.call.nargs);
   }
+  case AST_LIMIT:
+    return fail("cannot evaluate limit as scalar");
   case AST_MATRIX:
     return fail("cannot evaluate matrix as scalar");
   }

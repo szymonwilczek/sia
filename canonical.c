@@ -15,10 +15,12 @@ static int node_sort_key(const AstNode *n) {
     return 3;
   case AST_FUNC_CALL:
     return 4;
-  case AST_MATRIX:
+  case AST_LIMIT:
     return 5;
+  case AST_MATRIX:
+    return 6;
   }
-  return 5;
+  return 6;
 }
 
 static int node_compare(const AstNode *a, const AstNode *b) {
@@ -52,6 +54,15 @@ static int node_compare(const AstNode *a, const AstNode *b) {
         return c;
     }
     return 0;
+  }
+  case AST_LIMIT: {
+    int c = strcmp(a->as.limit.var, b->as.limit.var);
+    if (c != 0)
+      return c;
+    c = node_compare(a->as.limit.target, b->as.limit.target);
+    if (c != 0)
+      return c;
+    return node_compare(a->as.limit.expr, b->as.limit.expr);
   }
   case AST_UNARY_NEG:
     return node_compare(a->as.unary.operand, b->as.unary.operand);
@@ -122,6 +133,11 @@ AstNode *ast_canonicalize(AstNode *node) {
   case AST_FUNC_CALL:
     for (size_t i = 0; i < node->as.call.nargs; i++)
       node->as.call.args[i] = ast_canonicalize(node->as.call.args[i]);
+    return node;
+
+  case AST_LIMIT:
+    node->as.limit.expr = ast_canonicalize(node->as.limit.expr);
+    node->as.limit.target = ast_canonicalize(node->as.limit.target);
     return node;
 
   case AST_BINOP:

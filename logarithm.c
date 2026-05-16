@@ -35,6 +35,10 @@ static int ast_equal(const AstNode *a, const AstNode *b) {
         return 0;
     }
     return 1;
+  case AST_LIMIT:
+    return strcmp(a->as.limit.var, b->as.limit.var) == 0 &&
+           ast_equal(a->as.limit.target, b->as.limit.target) &&
+           ast_equal(a->as.limit.expr, b->as.limit.expr);
   case AST_MATRIX:
     if (a->as.matrix.rows != b->as.matrix.rows ||
         a->as.matrix.cols != b->as.matrix.cols)

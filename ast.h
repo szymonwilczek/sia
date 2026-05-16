@@ -11,6 +11,7 @@ typedef enum {
   AST_BINOP,
   AST_UNARY_NEG,
   AST_FUNC_CALL,
+  AST_LIMIT,
   AST_MATRIX
 } AstType;
 
@@ -42,6 +43,12 @@ struct AstNode {
     } call;
 
     struct {
+      AstNode *expr;
+      char *var;
+      AstNode *target;
+    } limit;
+
+    struct {
       AstNode **elements; /* row-major, size = rows * cols */
       size_t rows;
       size_t cols;
@@ -57,6 +64,8 @@ AstNode *ast_binop(BinOpKind op, AstNode *left, AstNode *right);
 AstNode *ast_unary_neg(AstNode *operand);
 AstNode *ast_func_call(const char *name, size_t namelen, AstNode **args,
                        size_t nargs);
+AstNode *ast_limit(AstNode *expr, const char *var, size_t varlen,
+                   AstNode *target);
 AstNode *ast_matrix(AstNode **elements, size_t rows, size_t cols);
 
 AstNode *ast_clone(const AstNode *node);
