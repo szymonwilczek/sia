@@ -425,6 +425,14 @@ static AstNode *build_factor_node(PowerFactor *factor) {
   return ast_binop(OP_POW, base, exp);
 }
 
+static AstNode *build_factor_node_clone(const PowerFactor *factor) {
+  if (is_number(factor->exp, 0))
+    return ast_number(1);
+  if (is_number(factor->exp, 1))
+    return ast_clone(factor->base);
+  return ast_binop(OP_POW, ast_clone(factor->base), ast_clone(factor->exp));
+}
+
 static AstNode *ast_rational(long long num, long long den) {
   return ast_number_complex(
       c_from_fractions(fraction_make(num, den), fraction_make(0, 1)));
@@ -1773,6 +1781,155 @@ static AstNode *try_rational_reduce(AstNode *node) {
 
   AstNode *reduced = ast_poly_gcd_reduce(numer_ast, denom_ast);
 
+  if (!reduced && numer_factors.count > 1) {
+    PowerFactorList poly_factors = {0};
+    PowerFactorList nonpoly_factors = {0};
+
+    for (size_t i = 0; i < numer_factors.count; i++) {
+      AstNode *fnode = build_factor_node_clone(&numer_factors.items[i]);
+      AstNode *test = ast_polynomial_canonicalize(fnode);
+      if (test) {
+        ast_free(test);
+        power_factor_list_push(&poly_factors,
+                               ast_clone(numer_factors.items[i].base),
+                               ast_clone(numer_factors.items[i].exp));
+      } else {
+        power_factor_list_push(&nonpoly_factors,
+                               ast_clone(numer_factors.items[i].base),
+                               ast_clone(numer_factors.items[i].exp));
+      }
+      ast_free(fnode);
+    }
+
+    if (poly_factors.count > 0 && nonpoly_factors.count > 0) {
+      AstNode *poly_numer = NULL;
+      {
+        NodeList nl = {0};
+        append_factor_nodes(&poly_factors, &nl);
+        poly_numer = build_mul_chain(coeff, &nl);
+        node_list_free(&nl);
+      }
+      if (!poly_numer)
+        poly_numer = ast_number_complex(coeff);
+
+      AstNode *poly_reduced = ast_poly_gcd_reduce(poly_numer, denom_ast);
+      if (poly_reduced) {
+        NodeList nl = {0};
+        append_factor_nodes(&nonpoly_factors, &nl);
+        AstNode *nonpoly_part = build_mul_chain(c_real(1.0), &nl);
+        node_list_free(&nl);
+
+        if (nonpoly_part)
+          reduced = ast_binop(OP_MUL, poly_reduced, nonpoly_part);
+        else
+          reduced = poly_reduced;
+      }
+      ast_free(poly_numer);
+    }
+
+    power_factor_list_free(&poly_factors);
+    power_factor_list_free(&nonpoly_factors);
+  }
+
+  if (!reduced && numer_ast &&
+      (numer_ast->type == AST_BINOP && (numer_ast->as.binop.op == OP_ADD ||
+                                        numer_ast->as.binop.op == OP_SUB))) {
+    AstNode **terms = NULL;
+    size_t tcount = 0, tcap = 4;
+    terms = malloc(tcap * sizeof(AstNode *));
+    flatten_add(numer_ast, &terms, &tcount, &tcap);
+
+    if (tcount >= 2) {
+      Complex tcoeff0 = c_real(1.0);
+      PowerFactorList tfactors0 = {0};
+      flatten_mul_factors(terms[0], &tcoeff0, &tfactors0);
+      merge_like_factors(&tfactors0);
+
+      PowerFactorList common = {0};
+      for (size_t f = 0; f < tfactors0.count; f++) {
+        if (!tfactors0.items[f].base)
+          continue;
+        AstNode *test = ast_polynomial_canonicalize(
+            build_factor_node_clone(&tfactors0.items[f]));
+        if (test) {
+          ast_free(test);
+          continue;
+        }
+
+        int present_in_all = 1;
+        for (size_t t = 1; t < tcount && present_in_all; t++) {
+          Complex tc = c_real(1.0);
+          PowerFactorList tf = {0};
+          flatten_mul_factors(terms[t], &tc, &tf);
+          merge_like_factors(&tf);
+          if (find_power_factor(&tf, tfactors0.items[f].base,
+                                tfactors0.items[f].exp) < 0)
+            present_in_all = 0;
+          power_factor_list_free(&tf);
+        }
+
+        if (present_in_all) {
+          power_factor_list_push(&common, ast_clone(tfactors0.items[f].base),
+                                 ast_clone(tfactors0.items[f].exp));
+        }
+      }
+      power_factor_list_free(&tfactors0);
+
+      if (common.count > 0) {
+        AstNode *remainder_sum = NULL;
+        for (size_t t = 0; t < tcount; t++) {
+          Complex tc = c_real(1.0);
+          PowerFactorList tf = {0};
+          flatten_mul_factors(terms[t], &tc, &tf);
+          merge_like_factors(&tf);
+
+          for (size_t c = 0; c < common.count; c++) {
+            int idx = find_power_factor(&tf, common.items[c].base,
+                                        common.items[c].exp);
+            if (idx >= 0) {
+              ast_free(tf.items[idx].base);
+              ast_free(tf.items[idx].exp);
+              tf.items[idx].base = NULL;
+              tf.items[idx].exp = NULL;
+            }
+          }
+
+          NodeList nl = {0};
+          append_factor_nodes(&tf, &nl);
+          AstNode *term_remainder = build_mul_chain(tc, &nl);
+          node_list_free(&nl);
+          power_factor_list_free(&tf);
+
+          if (!term_remainder)
+            term_remainder = ast_number_complex(tc);
+          remainder_sum = remainder_sum
+                              ? ast_binop(OP_ADD, remainder_sum, term_remainder)
+                              : term_remainder;
+        }
+
+        AstNode *poly_part = sym_simplify(remainder_sum);
+        AstNode *poly_reduced = ast_poly_gcd_reduce(poly_part, denom_ast);
+        if (poly_reduced) {
+          NodeList nl = {0};
+          append_factor_nodes(&common, &nl);
+          AstNode *common_part = build_mul_chain(c_real(1.0), &nl);
+          node_list_free(&nl);
+
+          if (common_part)
+            reduced = ast_binop(OP_MUL, poly_reduced, common_part);
+          else
+            reduced = poly_reduced;
+        }
+        ast_free(poly_part);
+      }
+      power_factor_list_free(&common);
+    }
+
+    for (size_t i = 0; i < tcount; i++)
+      ast_free(terms[i]);
+    free(terms);
+  }
+
   ast_free(numer_ast);
   ast_free(denom_ast);
   power_factor_list_free(&factors);
@@ -1998,18 +2155,58 @@ AstNode *sym_expand(AstNode *node) {
   return NULL;
 }
 
+static AstNode *reduce_rational_subexprs(const AstNode *node) {
+  if (!node)
+    return NULL;
+
+  if (node->type == AST_BINOP && node->as.binop.op == OP_DIV) {
+    AstNode *ln = reduce_rational_subexprs(node->as.binop.left);
+    AstNode *rn = reduce_rational_subexprs(node->as.binop.right);
+    AstNode *reduced = ast_poly_gcd_reduce(ln, rn);
+    if (reduced) {
+      ast_free(ln);
+      ast_free(rn);
+      return reduced;
+    }
+    return ast_binop(OP_DIV, ln, rn);
+  }
+
+  if (node->type == AST_BINOP) {
+    AstNode *ln = reduce_rational_subexprs(node->as.binop.left);
+    AstNode *rn = reduce_rational_subexprs(node->as.binop.right);
+    return ast_binop(node->as.binop.op, ln, rn);
+  }
+
+  if (node->type == AST_UNARY_NEG) {
+    return ast_unary_neg(reduce_rational_subexprs(node->as.unary.operand));
+  }
+
+  if (node->type == AST_FUNC_CALL) {
+    AstNode **args = malloc(node->as.call.nargs * sizeof(AstNode *));
+    for (size_t i = 0; i < node->as.call.nargs; i++)
+      args[i] = reduce_rational_subexprs(node->as.call.args[i]);
+    AstNode *r = ast_func_call(node->as.call.name, strlen(node->as.call.name),
+                               args, node->as.call.nargs);
+    free(args);
+    return r;
+  }
+
+  return ast_clone(node);
+}
+
 AstNode *sym_diff(const AstNode *expr, const char *var) {
   if (!expr)
     return ast_number(0);
 
-  if (expr->type == AST_BINOP && expr->as.binop.op == OP_DIV) {
-    AstNode *reduced =
-        ast_poly_gcd_reduce(expr->as.binop.left, expr->as.binop.right);
-    if (reduced) {
-      AstNode *result = sym_diff(reduced, var);
-      ast_free(reduced);
+  if (expr->type == AST_BINOP &&
+      (expr->as.binop.op == OP_DIV || expr->as.binop.op == OP_MUL)) {
+    AstNode *pre = reduce_rational_subexprs(expr);
+    if (!ast_equal(pre, expr)) {
+      AstNode *result = sym_diff(pre, var);
+      ast_free(pre);
       return result;
     }
+    ast_free(pre);
   }
 
   switch (expr->type) {
