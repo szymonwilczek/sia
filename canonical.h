@@ -5,5 +5,6 @@
 
 AstNode *ast_canonicalize(AstNode *node);
 AstNode *ast_polynomial_canonicalize(const AstNode *node);
+AstNode *ast_poly_gcd_reduce(const AstNode *numer, const AstNode *denom);
 
 #endif

@@ -624,3 +624,251 @@ AstNode *ast_polynomial_canonicalize(const AstNode *node) {
   canonical_polynomial_free(&poly);
   return result;
 }
+
+static int poly_is_univariate(const CanonicalPolynomial *p, const char **var) {
+  *var = NULL;
+  for (size_t i = 0; i < p->count; i++) {
+    if (p->terms[i].degree_count > 1)
+      return 0;
+    if (p->terms[i].degree_count == 1) {
+      if (!*var)
+        *var = p->terms[i].degrees[0].var;
+      else if (strcmp(*var, p->terms[i].degrees[0].var) != 0)
+        return 0;
+    }
+  }
+  if (!*var)
+    *var = "x";
+  return 1;
+}
+
+static int poly_degree(const CanonicalPolynomial *p, const char *var) {
+  int deg = 0;
+  for (size_t i = 0; i < p->count; i++) {
+    for (size_t j = 0; j < p->terms[i].degree_count; j++) {
+      if (strcmp(p->terms[i].degrees[j].var, var) == 0 &&
+          p->terms[i].degrees[j].degree > deg)
+        deg = p->terms[i].degrees[j].degree;
+    }
+  }
+  return deg;
+}
+
+static Complex poly_get_coeff(const CanonicalPolynomial *p, const char *var,
+                              int degree) {
+  for (size_t i = 0; i < p->count; i++) {
+    int term_deg = 0;
+    for (size_t j = 0; j < p->terms[i].degree_count; j++) {
+      if (strcmp(p->terms[i].degrees[j].var, var) == 0)
+        term_deg = p->terms[i].degrees[j].degree;
+    }
+    if (term_deg == degree && p->terms[i].degree_count <= 1)
+      return p->terms[i].coeff;
+  }
+  return c_real(0.0);
+}
+
+static int coeffs_from_poly(const CanonicalPolynomial *p, const char *var,
+                            Complex **out, int *deg) {
+  *deg = poly_degree(p, var);
+  *out = calloc((size_t)(*deg + 1), sizeof(Complex));
+  if (!*out)
+    return 0;
+  for (int i = 0; i <= *deg; i++)
+    (*out)[i] = poly_get_coeff(p, var, i);
+  return 1;
+}
+
+static int poly_from_coeffs(const Complex *coeffs, int deg, const char *var,
+                            CanonicalPolynomial *out) {
+  *out = (CanonicalPolynomial){0};
+  for (int i = 0; i <= deg; i++) {
+    if (c_is_zero(coeffs[i]))
+      continue;
+    CanonicalTerm term = {0};
+    term.coeff = coeffs[i];
+    if (i > 0 && !canonical_term_add_degree(&term, var, i)) {
+      canonical_term_free(&term);
+      canonical_polynomial_free(out);
+      return 0;
+    }
+    if (!canonical_poly_append_owned(out, &term)) {
+      canonical_term_free(&term);
+      canonical_polynomial_free(out);
+      return 0;
+    }
+  }
+  canonical_poly_normalize(out);
+  return 1;
+}
+
+static int actual_degree(const Complex *c, int deg) {
+  while (deg > 0 && c_is_zero(c[deg]))
+    deg--;
+  return deg;
+}
+
+static void poly_div_rem(const Complex *a, int deg_a, const Complex *b,
+                         int deg_b, Complex **quot, int *deg_q, Complex **rem,
+                         int *deg_r) {
+  int i;
+  Complex *r = malloc((size_t)(deg_a + 1) * sizeof(Complex));
+  Complex *q = calloc((size_t)(deg_a - deg_b + 1), sizeof(Complex));
+
+  for (i = 0; i <= deg_a; i++)
+    r[i] = a[i];
+
+  *deg_q = deg_a - deg_b;
+
+  for (i = deg_a - deg_b; i >= 0; i--) {
+    q[i] = c_div(r[i + deg_b], b[deg_b]);
+    for (int j = 0; j <= deg_b; j++) {
+      r[i + j] = c_sub(r[i + j], c_mul(q[i], b[j]));
+    }
+  }
+
+  *quot = q;
+  *rem = r;
+  *deg_r = actual_degree(r, deg_b - 1);
+}
+
+static void poly_gcd_coeffs(const Complex *a, int deg_a, const Complex *b,
+                            int deg_b, Complex **gcd_out, int *deg_gcd) {
+  Complex *p = malloc((size_t)(deg_a + 1) * sizeof(Complex));
+  Complex *q = malloc((size_t)(deg_b + 1) * sizeof(Complex));
+  int dp, dq;
+
+  for (int i = 0; i <= deg_a; i++)
+    p[i] = a[i];
+  for (int i = 0; i <= deg_b; i++)
+    q[i] = b[i];
+  dp = actual_degree(p, deg_a);
+  dq = actual_degree(q, deg_b);
+
+  while (dq > 0 || (dq == 0 && !c_is_zero(q[0]))) {
+    Complex *quot = NULL, *rem = NULL;
+    int dquot, drem;
+    if (dp < dq) {
+      Complex *tmp = p;
+      p = q;
+      q = tmp;
+      int td = dp;
+      dp = dq;
+      dq = td;
+    }
+    poly_div_rem(p, dp, q, dq, &quot, &dquot, &rem, &drem);
+    free(quot);
+    free(p);
+    p = q;
+    dp = dq;
+    q = rem;
+    dq = drem;
+  }
+
+  /* make monic */
+  if (dp > 0 || !c_is_zero(p[0])) {
+    Complex lc = p[dp];
+    if (!c_is_one(lc)) {
+      for (int i = 0; i <= dp; i++)
+        p[i] = c_div(p[i], lc);
+    }
+  }
+
+  free(q);
+  *gcd_out = p;
+  *deg_gcd = dp;
+}
+
+AstNode *ast_poly_gcd_reduce(const AstNode *numer, const AstNode *denom) {
+  CanonicalPolynomial pn = {0}, pd = {0};
+  const char *var_n = NULL, *var_d = NULL;
+  Complex *cn = NULL, *cd = NULL, *gcd = NULL;
+  Complex *qn = NULL, *qd = NULL, *rem = NULL;
+  int dn, dd, dg, dqn, dqd, drem;
+  CanonicalPolynomial poly_num = {0}, poly_den = {0};
+  AstNode *result = NULL;
+
+  if (!canonical_poly_from_ast(numer, &pn) ||
+      !canonical_poly_from_ast(denom, &pd))
+    goto fail;
+
+  canonical_poly_normalize(&pn);
+  canonical_poly_normalize(&pd);
+
+  if (!poly_is_univariate(&pn, &var_n) || !poly_is_univariate(&pd, &var_d))
+    goto fail;
+
+  if (var_n && var_d && strcmp(var_n, var_d) != 0)
+    goto fail;
+
+  const char *var = var_n ? var_n : var_d;
+
+  if (!coeffs_from_poly(&pn, var, &cn, &dn) ||
+      !coeffs_from_poly(&pd, var, &cd, &dd))
+    goto fail;
+
+  if (dn == 0 && dd == 0)
+    goto fail;
+
+  poly_gcd_coeffs(cn, dn, cd, dd, &gcd, &dg);
+
+  if (dg == 0 && c_is_one(gcd[0]))
+    goto fail;
+
+  poly_div_rem(cn, dn, gcd, dg, &qn, &dqn, &rem, &drem);
+  for (int i = 0; i <= drem; i++) {
+    if (!c_is_zero(rem[i]))
+      goto fail;
+  }
+  free(rem);
+  rem = NULL;
+
+  poly_div_rem(cd, dd, gcd, dg, &qd, &dqd, &rem, &drem);
+  for (int i = 0; i <= drem; i++) {
+    if (!c_is_zero(rem[i]))
+      goto fail;
+  }
+
+  if (!poly_from_coeffs(qn, dqn, var, &poly_num) ||
+      !poly_from_coeffs(qd, dqd, var, &poly_den))
+    goto fail;
+
+  {
+    AstNode *num_ast = NULL, *den_ast = NULL;
+
+    if (poly_num.count == 0) {
+      num_ast = ast_number(0);
+    } else {
+      for (size_t i = 0; i < poly_num.count; i++) {
+        AstNode *t = canonical_term_to_ast(&poly_num.terms[i]);
+        num_ast = num_ast ? ast_binop(OP_ADD, num_ast, t) : t;
+      }
+    }
+
+    if (poly_den.count == 1 && c_is_one(poly_den.terms[0].coeff) &&
+        poly_den.terms[0].degree_count == 0) {
+      result = num_ast;
+    } else {
+      den_ast = NULL;
+      for (size_t i = 0; i < poly_den.count; i++) {
+        AstNode *t = canonical_term_to_ast(&poly_den.terms[i]);
+        den_ast = den_ast ? ast_binop(OP_ADD, den_ast, t) : t;
+      }
+      result = ast_binop(OP_MUL, num_ast,
+                         ast_binop(OP_POW, den_ast, ast_number(-1)));
+    }
+  }
+
+fail:
+  canonical_polynomial_free(&pn);
+  canonical_polynomial_free(&pd);
+  canonical_polynomial_free(&poly_num);
+  canonical_polynomial_free(&poly_den);
+  free(cn);
+  free(cd);
+  free(gcd);
+  free(qn);
+  free(qd);
+  free(rem);
+  return result;
+}
