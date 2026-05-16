@@ -1,6 +1,6 @@
-#include "logarithm.h"
+#include "sia/logarithm.h"
+#include "sia/trigonometry.h"
 #include "symbolic_internal.h"
-#include "trigonometry/trigonometry.h"
 #include <stdlib.h>
 #include <string.h>
 

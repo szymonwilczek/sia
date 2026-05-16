@@ -1,4 +1,4 @@
-#include "symtab.h"
+#include "sia/symtab.h"
 #include <stdlib.h>
 #include <string.h>
 

@@ -1,8 +1,8 @@
 #ifndef SIA_SYMBOLIC_INTERNAL_H
 #define SIA_SYMBOLIC_INTERNAL_H
 
-#include "ast.h"
-#include "symbolic.h"
+#include "sia/ast.h"
+#include "sia/symbolic.h"
 #include <stdlib.h>
 #include <string.h>
 

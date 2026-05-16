@@ -1,5 +1,5 @@
-#include "canonical.h"
-#include "solve.h"
+#include "sia/canonical.h"
+#include "sia/solve.h"
 #include "symbolic_internal.h"
 #include <math.h>
 #include <stdlib.h>

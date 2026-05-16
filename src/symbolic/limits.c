@@ -1,6 +1,6 @@
-#include "limits.h"
-#include "eval.h"
-#include "symbolic.h"
+#include "sia/limits.h"
+#include "sia/eval.h"
+#include "sia/symbolic.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>

@@ -1,8 +1,8 @@
-#include "eval.h"
-#include "factorial.h"
-#include "logarithm.h"
-#include "number_theory.h"
-#include "trigonometry/trigonometry.h"
+#include "sia/eval.h"
+#include "sia/factorial.h"
+#include "sia/logarithm.h"
+#include "sia/number_theory.h"
+#include "sia/trigonometry.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>

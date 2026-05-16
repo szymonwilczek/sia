@@ -1,6 +1,6 @@
-#include "ast.h"
-#include "factorial.h"
-#include "fractions.h"
+#include "sia/ast.h"
+#include "sia/factorial.h"
+#include "sia/fractions.h"
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>

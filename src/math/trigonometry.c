@@ -1,5 +1,5 @@
-#include "trigonometry.h"
-#include "../symbolic.h"
+#include "sia/trigonometry.h"
+#include "sia/symbolic.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>

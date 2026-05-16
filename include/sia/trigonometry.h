@@ -1,7 +1,7 @@
 #ifndef SIA_TRIGONOMETRY_H
 #define SIA_TRIGONOMETRY_H
 
-#include "../ast.h"
+#include "sia/ast.h"
 
 typedef enum {
   TRIG_KIND_NONE = 0,

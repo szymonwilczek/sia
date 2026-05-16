@@ -1,8 +1,8 @@
-#include "solve.h"
-#include "canonical.h"
-#include "eval.h"
-#include "logarithm.h"
-#include "symbolic.h"
+#include "sia/solve.h"
+#include "sia/canonical.h"
+#include "sia/eval.h"
+#include "sia/logarithm.h"
+#include "sia/symbolic.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>

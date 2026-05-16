@@ -1,4 +1,4 @@
-#include "canonical.h"
+#include "sia/canonical.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>

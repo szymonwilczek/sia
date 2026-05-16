@@ -1,5 +1,5 @@
-#include "canonical.h"
-#include "factorial.h"
+#include "sia/canonical.h"
+#include "sia/factorial.h"
 #include "symbolic_internal.h"
 #include <stdlib.h>
 #include <string.h>

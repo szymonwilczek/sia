@@ -1,4 +1,4 @@
-#include "number_theory.h"
+#include "sia/number_theory.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
