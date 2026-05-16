@@ -361,14 +361,25 @@ static AstNode *limit_lhopital(const AstNode *expr, const char *var,
 
 static AstNode *limit_inner(const AstNode *expr, const char *var,
                             const AstNode *target, int depth) {
-  AstNode *normalized = sym_full_simplify(ast_clone(expr));
   AstNode *direct = NULL;
   LimitStatus status;
 
-  if (!normalized || depth > 8) {
-    ast_free(normalized);
+  if (!expr || depth > 8)
     return NULL;
+
+  status = direct_substitution(expr, var, target, &direct);
+  if (status == LIMIT_DIRECT_OK)
+    return direct;
+
+  if (status == LIMIT_INDETERMINATE) {
+    AstNode *result = limit_lhopital(expr, var, target, depth + 1);
+    if (result)
+      return result;
   }
+
+  AstNode *normalized = sym_full_simplify(ast_clone(expr));
+  if (!normalized)
+    return NULL;
 
   status = direct_substitution(normalized, var, target, &direct);
   if (status == LIMIT_DIRECT_OK) {
