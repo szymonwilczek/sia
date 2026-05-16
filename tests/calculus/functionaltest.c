@@ -937,6 +937,19 @@ static void test_limit_nonzero_over_zero(void) {
   PASS();
 }
 
+static void test_limit_exponential_dominates_polynomial(void) {
+  TEST("limit: exponential dominates polynomial at infinity");
+  ParseResult r = parse("x^2 / exp(x)");
+  AstNode *target = ast_variable("inf", 3);
+  AstNode *result = sym_limit(r.root, "x", target);
+  ASSERT_TRUE(result != NULL);
+  ASSERT_TRUE(is_num_node(result, 0));
+  ast_free(result);
+  ast_free(target);
+  parse_result_free(&r);
+  PASS();
+}
+
 void tests_calculus_functional(void) {
   test_diff_constant();
   test_diff_variable();
@@ -996,4 +1009,5 @@ void tests_calculus_functional(void) {
   test_limit_at_infinity();
   test_limit_infinity_over_infinity();
   test_limit_nonzero_over_zero();
+  test_limit_exponential_dominates_polynomial();
 }
