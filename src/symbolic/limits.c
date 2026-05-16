@@ -67,6 +67,13 @@ static int finite_real_number(const AstNode *node, double *out) {
   return 1;
 }
 
+static AstNode *limit_number(double value) {
+  double rounded = round(value);
+  if (isfinite(value) && fabs(value - rounded) < 1e-9)
+    return ast_number(rounded);
+  return ast_number(value);
+}
+
 static int contains_inf(const AstNode *node) {
   if (!node)
     return 0;
@@ -204,7 +211,7 @@ static AstNode *directed_quotient_probe(const AstNode *expr, const char *var,
     return NULL;
 
   if (isfinite(v1) && isfinite(v2) && fabs(v1 - v2) < 1e-7)
-    return ast_number(v2);
+    return limit_number(v2);
 
   return NULL;
 }
@@ -332,10 +339,31 @@ static AstNode *limit_rational_polynomial_at_infinity(const AstNode *num,
     return NULL;
 
   if (nd == dd)
-    return ast_number(ratio);
+    return limit_number(ratio);
 
   int sign = ratio < 0.0 ? -1 : 1;
   if (target_sign < 0 && ((nd - dd) % 2 != 0))
+    sign = -sign;
+  return ast_infinity(sign);
+}
+
+static AstNode *limit_polynomial_at_infinity(const AstNode *expr,
+                                             const char *var,
+                                             const AstNode *target) {
+  int target_sign = inf_sign(target);
+  int degree = 0;
+  double coeff = 0.0;
+
+  if (target_sign == 0 || !polynomial_leading_term(expr, var, &degree, &coeff))
+    return NULL;
+
+  if (degree == 0)
+    return limit_number(coeff);
+  if (coeff == 0.0)
+    return NULL;
+
+  int sign = coeff < 0.0 ? -1 : 1;
+  if (target_sign < 0 && (degree % 2 != 0))
     sign = -sign;
   return ast_infinity(sign);
 }
@@ -590,6 +618,12 @@ static LimitStatus direct_substitution(const AstNode *expr, const char *var,
   if (fraction_status != LIMIT_UNSUPPORTED)
     return fraction_status;
 
+  AstNode *poly_inf = limit_polynomial_at_infinity(expr, var, target);
+  if (poly_inf) {
+    *out = poly_inf;
+    return LIMIT_DIRECT_OK;
+  }
+
   AstNode *sub = sym_subs(expr, var, target);
   if (!sub)
     return LIMIT_UNSUPPORTED;
@@ -614,6 +648,12 @@ static LimitStatus direct_substitution(const AstNode *expr, const char *var,
   }
 
   if (is_finite_number(simplified)) {
+    double value = 0.0;
+    if (finite_real_number(simplified, &value)) {
+      ast_free(simplified);
+      *out = limit_number(value);
+      return LIMIT_DIRECT_OK;
+    }
     *out = simplified;
     return LIMIT_DIRECT_OK;
   }

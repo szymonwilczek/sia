@@ -132,6 +132,18 @@ static void test_directional_abs_denominator_limit(void) {
   PASS();
 }
 
+static void test_directional_numeric_limit_snaps_integer(void) {
+  TEST("calculus: directional numeric limit snaps near integer");
+  ASSERT_TRUE(simplifies_to("lim(abs(sin(x))/x, x, 0-)", "-1"));
+  PASS();
+}
+
+static void test_polynomial_limit_at_infinity(void) {
+  TEST("calculus: polynomial dominant term at infinity");
+  ASSERT_TRUE(simplifies_to("lim(x^2 - x^3, x, inf)", "-inf"));
+  PASS();
+}
+
 void tests_calculus_mathtest(void) {
   test_symbolic_derivative_matches_finite_difference();
   test_integral_derivative_roundtrip_polynomial();
@@ -142,4 +154,6 @@ void tests_calculus_mathtest(void) {
   test_infinite_power_simplification();
   test_directional_abs_denominator_limit();
   test_rational_polynomial_limit_at_negative_infinity();
+  test_directional_numeric_limit_snaps_integer();
+  test_polynomial_limit_at_infinity();
 }
