@@ -63,6 +63,7 @@ static inline int ast_equal(const AstNode *a, const AstNode *b) {
     return 1;
   case AST_LIMIT:
     return strcmp(a->as.limit.var, b->as.limit.var) == 0 &&
+           a->as.limit.direction == b->as.limit.direction &&
            ast_equal(a->as.limit.target, b->as.limit.target) &&
            ast_equal(a->as.limit.expr, b->as.limit.expr);
   case AST_MATRIX:

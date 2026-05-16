@@ -65,6 +65,8 @@ static int node_compare(const AstNode *a, const AstNode *b) {
     int c = strcmp(a->as.limit.var, b->as.limit.var);
     if (c != 0)
       return c;
+    if (a->as.limit.direction != b->as.limit.direction)
+      return a->as.limit.direction - b->as.limit.direction;
     c = node_compare(a->as.limit.target, b->as.limit.target);
     if (c != 0)
       return c;

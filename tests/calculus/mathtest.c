@@ -1,5 +1,5 @@
-#include "../test_support.h"
 #include "../test_suites.h"
+#include "../test_support.h"
 
 static Complex eval_expr_at(const AstNode *expr, double x) {
   SymTab st;
@@ -14,7 +14,8 @@ static Complex eval_expr_at(const AstNode *expr, double x) {
 
 static void test_symbolic_derivative_matches_finite_difference(void) {
   TEST("calculus: symbolic derivative matches finite difference");
-  ParseResult r = parse("asin(x) + acos(x)/2 + atan(x^2) + sinh(x) - cosh(x)/3 + tanh(x)");
+  ParseResult r =
+      parse("asin(x) + acos(x)/2 + atan(x^2) + sinh(x) - cosh(x)/3 + tanh(x)");
   ASSERT_TRUE(r.root != NULL);
 
   AstNode *d = sym_diff(r.root, "x");
@@ -59,7 +60,61 @@ static void test_integral_derivative_roundtrip_polynomial(void) {
   PASS();
 }
 
+static int simplifies_to(const char *expr, const char *expected) {
+  ParseResult r = parse(expr);
+  if (!r.root)
+    return 0;
+
+  AstNode *result = sym_full_simplify(ast_clone(r.root));
+  if (!result) {
+    parse_result_free(&r);
+    return 0;
+  }
+
+  char *str = ast_to_string(result);
+  int ok = strcmp(str, expected) == 0;
+
+  free(str);
+  ast_free(result);
+  parse_result_free(&r);
+  return ok;
+}
+
+static void test_directional_limit_reciprocal(void) {
+  TEST("calculus: lim(1/x, x, 0+) = inf and 0- = -inf");
+  ASSERT_TRUE(simplifies_to("lim(1/x, x, 0+)", "inf"));
+  ASSERT_TRUE(simplifies_to("lim(1/x, x, 0-)", "-inf"));
+  PASS();
+}
+
+static void test_directional_limit_abs_ratio(void) {
+  TEST("calculus: lim(abs(x)/x, x, 0-) = -1");
+  ASSERT_TRUE(simplifies_to("lim(abs(x)/x, x, 0-)", "-1"));
+  ASSERT_TRUE(simplifies_to("lim(abs(x)/x, x, 0+)", "1"));
+  PASS();
+}
+
+static void test_two_sided_vertical_asymptotes(void) {
+  TEST("calculus: two-sided vertical asymptote signs");
+  ASSERT_TRUE(simplifies_to("lim(1/x, x, 0)", "undefined"));
+  ASSERT_TRUE(simplifies_to("lim(1/x^2, x, 0)", "inf"));
+  PASS();
+}
+
+static void test_signed_infinity_arithmetic(void) {
+  TEST("calculus: signed infinity arithmetic");
+  ASSERT_TRUE(simplifies_to("(-1)*inf", "-inf"));
+  ASSERT_TRUE(simplifies_to("1/inf", "0"));
+  ASSERT_TRUE(simplifies_to("inf + inf", "inf"));
+  ASSERT_TRUE(simplifies_to("inf - inf", "undefined"));
+  PASS();
+}
+
 void tests_calculus_mathtest(void) {
   test_symbolic_derivative_matches_finite_difference();
   test_integral_derivative_roundtrip_polynomial();
+  test_directional_limit_reciprocal();
+  test_directional_limit_abs_ratio();
+  test_two_sided_vertical_asymptotes();
+  test_signed_infinity_arithmetic();
 }

@@ -172,16 +172,26 @@ static int fold_unary_numeric_call(const char *name, Complex arg,
 }
 
 static int is_positive_inf_node(const AstNode *n) {
-  return n && n->type == AST_VARIABLE && strcmp(n->as.variable, "inf") == 0;
+  return n && ((n->type == AST_INFINITY && n->as.infinity.sign > 0) ||
+               (n->type == AST_VARIABLE && strcmp(n->as.variable, "inf") == 0));
 }
 
 static int is_negative_inf_node(const AstNode *n) {
-  return n && n->type == AST_UNARY_NEG &&
-         is_positive_inf_node(n->as.unary.operand);
+  return n && ((n->type == AST_INFINITY && n->as.infinity.sign < 0) ||
+               (n->type == AST_UNARY_NEG &&
+                is_positive_inf_node(n->as.unary.operand)));
 }
 
 static int is_inf_node(const AstNode *n) {
   return is_positive_inf_node(n) || is_negative_inf_node(n);
+}
+
+static int infinity_sign(const AstNode *n) {
+  if (is_negative_inf_node(n))
+    return -1;
+  if (is_positive_inf_node(n))
+    return 1;
+  return 0;
 }
 
 typedef struct {
@@ -523,8 +533,9 @@ AstNode *sym_simplify(AstNode *node) {
     AstNode *result = NULL;
     node->as.limit.expr = sym_simplify(node->as.limit.expr);
     node->as.limit.target = sym_simplify(node->as.limit.target);
-    result = sym_limit(node->as.limit.expr, node->as.limit.var,
-                       node->as.limit.target);
+    result =
+        sym_limit_directed(node->as.limit.expr, node->as.limit.var,
+                           node->as.limit.target, node->as.limit.direction);
     if (result) {
       ast_free(node);
       return result;
@@ -534,6 +545,11 @@ AstNode *sym_simplify(AstNode *node) {
 
   case AST_UNARY_NEG:
     node->as.unary.operand = sym_simplify(node->as.unary.operand);
+    if (node->as.unary.operand->type == AST_INFINITY) {
+      int sign = -node->as.unary.operand->as.infinity.sign;
+      ast_free(node);
+      return ast_infinity(sign);
+    }
     if (is_num(node->as.unary.operand)) {
       Complex z = c_neg(node->as.unary.operand->as.number);
       ast_free(node);
@@ -832,6 +848,14 @@ AstNode *sym_simplify(AstNode *node) {
 
   switch (op) {
   case OP_ADD:
+    if (is_inf_node(L) || is_inf_node(R)) {
+      int ls = infinity_sign(L);
+      int rs = infinity_sign(R);
+      ast_free(node);
+      if (ls != 0 && rs != 0)
+        return ls == rs ? ast_infinity(ls) : ast_undefined();
+      return ast_infinity(ls != 0 ? ls : rs);
+    }
     if (is_number(R, 0)) {
       node->as.binop.left = NULL;
       ast_free(node);
@@ -894,6 +918,14 @@ AstNode *sym_simplify(AstNode *node) {
     break;
 
   case OP_SUB:
+    if (is_inf_node(L) || is_inf_node(R)) {
+      int ls = infinity_sign(L);
+      int rs = infinity_sign(R);
+      ast_free(node);
+      if (ls != 0 && rs != 0)
+        return ls == rs ? ast_undefined() : ast_infinity(ls);
+      return ast_infinity(ls != 0 ? ls : -rs);
+    }
     if (is_number(R, 0)) {
       node->as.binop.left = NULL;
       ast_free(node);
@@ -944,16 +976,26 @@ AstNode *sym_simplify(AstNode *node) {
     break;
 
   case OP_MUL:
-    if ((is_inf_node(L) && is_num(R) && !c_is_zero(R->as.number)) ||
-        (is_inf_node(R) && is_num(L) && !c_is_zero(L->as.number))) {
-      AstNode *inf = is_inf_node(L) ? L : R;
+    if ((is_inf_node(L) && is_num(R)) || (is_inf_node(R) && is_num(L))) {
       AstNode *coeff = is_inf_node(L) ? R : L;
-      int neg = is_negative_inf_node(inf);
+      int sign = infinity_sign(is_inf_node(L) ? L : R);
+      if (c_is_zero(coeff->as.number)) {
+        ast_free(node);
+        return ast_undefined();
+      }
+      if (!c_is_real(coeff->as.number)) {
+        ast_free(node);
+        return ast_undefined();
+      }
       if (coeff->as.number.re < 0)
-        neg = !neg;
+        sign = -sign;
       ast_free(node);
-      return neg ? ast_unary_neg(ast_variable("inf", 3))
-                 : ast_variable("inf", 3);
+      return ast_infinity(sign);
+    }
+    if (is_inf_node(L) && is_inf_node(R)) {
+      int sign = infinity_sign(L) * infinity_sign(R);
+      ast_free(node);
+      return ast_infinity(sign);
     }
     if (is_number(L, 0) || is_number(R, 0)) {
       ast_free(node);
@@ -1117,9 +1159,24 @@ AstNode *sym_simplify(AstNode *node) {
     break;
 
   case OP_DIV:
+    if (is_inf_node(L) && is_inf_node(R)) {
+      ast_free(node);
+      return ast_undefined();
+    }
     if (is_inf_node(R) && !is_inf_node(L)) {
       ast_free(node);
       return ast_number(0);
+    }
+    if (is_inf_node(L) && is_num(R) && !c_is_zero(R->as.number)) {
+      int sign = infinity_sign(L);
+      if (!c_is_real(R->as.number)) {
+        ast_free(node);
+        return ast_undefined();
+      }
+      if (R->as.number.re < 0)
+        sign = -sign;
+      ast_free(node);
+      return ast_infinity(sign);
     }
     if (is_number(R, 1)) {
       node->as.binop.left = NULL;
@@ -1180,10 +1237,13 @@ AstNode *sym_simplify(AstNode *node) {
   case OP_POW:
     if (is_inf_node(L) && is_num(R) && c_is_real(R->as.number)) {
       double exp = R->as.number.re;
+      int sign = infinity_sign(L);
       ast_free(node);
       if (exp < 0.0)
         return ast_number(0);
-      return ast_variable("inf", 3);
+      if (sign < 0 && exp == (int)exp && ((int)exp % 2 != 0))
+        return ast_infinity(-1);
+      return ast_infinity(1);
     }
     if (is_number(R, 0)) {
       ast_free(node);

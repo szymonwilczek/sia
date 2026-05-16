@@ -494,7 +494,8 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
     AstNode *target = resolve_symbolic(ast_clone(node->as.limit.target), st);
     expr = substitute_vars(expr, st);
     target = substitute_vars(target, st);
-    AstNode *result = sym_limit(expr, node->as.limit.var, target);
+    AstNode *result = sym_limit_directed(expr, node->as.limit.var, target,
+                                         node->as.limit.direction);
     ast_free(expr);
     ast_free(target);
     if (result) {

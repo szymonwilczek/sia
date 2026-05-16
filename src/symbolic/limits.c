@@ -1,6 +1,8 @@
 #include "sia/limits.h"
 #include "sia/eval.h"
 #include "sia/symbolic.h"
+#include "sia/symtab.h"
+#include "symbolic_internal.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,17 +35,27 @@ static int is_nan_number(const AstNode *node) {
 }
 
 static int is_positive_inf_node(const AstNode *node) {
-  return node && node->type == AST_VARIABLE &&
-         strcmp(node->as.variable, "inf") == 0;
+  return node && ((node->type == AST_INFINITY && node->as.infinity.sign > 0) ||
+                  (node->type == AST_VARIABLE &&
+                   strcmp(node->as.variable, "inf") == 0));
 }
 
 static int is_negative_inf_node(const AstNode *node) {
-  return node && node->type == AST_UNARY_NEG &&
-         is_positive_inf_node(node->as.unary.operand);
+  return node && ((node->type == AST_INFINITY && node->as.infinity.sign < 0) ||
+                  (node->type == AST_UNARY_NEG &&
+                   is_positive_inf_node(node->as.unary.operand)));
 }
 
 static int is_inf_node(const AstNode *node) {
   return is_positive_inf_node(node) || is_negative_inf_node(node);
+}
+
+static int inf_sign(const AstNode *node) {
+  if (is_negative_inf_node(node))
+    return -1;
+  if (is_positive_inf_node(node))
+    return 1;
+  return 0;
 }
 
 static int contains_inf(const AstNode *node) {
@@ -93,6 +105,97 @@ static LimitClass classify_node(const AstNode *node) {
   if (is_inf_node(node) || contains_inf(node))
     return LIMIT_CLASS_INF;
   return LIMIT_CLASS_OTHER;
+}
+
+static int real_sign(double value) {
+  if (value > 1e-12)
+    return 1;
+  if (value < -1e-12)
+    return -1;
+  return 0;
+}
+
+static int eval_real_at(const AstNode *expr, const char *var, double x,
+                        double *out) {
+  SymTab st;
+  EvalResult result;
+  if (!expr || !var || !out)
+    return 0;
+
+  symtab_init(&st);
+  symtab_set(&st, var, c_real(x));
+  result = eval(expr, &st);
+  symtab_free(&st);
+  if (!result.ok || !c_is_real(result.value) || !isfinite(result.value.re)) {
+    eval_result_free(&result);
+    return 0;
+  }
+  *out = result.value.re;
+  eval_result_free(&result);
+  return 1;
+}
+
+static int finite_target_value(const AstNode *target, double *out) {
+  if (!target || target->type != AST_NUMBER || !c_is_real(target->as.number) ||
+      !isfinite(target->as.number.re))
+    return 0;
+  *out = target->as.number.re;
+  return 1;
+}
+
+static int sign_at(const AstNode *expr, const char *var,
+                   const AstNode *target) {
+  AstNode *sub = sym_subs(expr, var, target);
+  AstNode *simplified = sub ? sym_full_simplify(sub) : NULL;
+  int sign = 0;
+
+  if (simplified && simplified->type == AST_NUMBER &&
+      c_is_real(simplified->as.number))
+    sign = real_sign(simplified->as.number.re);
+  else if (simplified)
+    sign = inf_sign(simplified);
+
+  ast_free(simplified);
+  return sign;
+}
+
+static int sign_near(const AstNode *expr, const char *var,
+                     const AstNode *target, int direction) {
+  double center = 0.0;
+  double sample = 0.0;
+  double value = 0.0;
+  double step = 0.0;
+
+  if (!finite_target_value(target, &center) || direction == 0)
+    return 0;
+
+  step = fmax(1e-6, fabs(center) * 1e-6);
+  sample = center + (direction > 0 ? step : -step);
+  if (!eval_real_at(expr, var, sample, &value))
+    return 0;
+  return real_sign(value);
+}
+
+static AstNode *directed_quotient_probe(const AstNode *expr, const char *var,
+                                        const AstNode *target, int direction) {
+  double center = 0.0;
+  double step = 0.0;
+  double v1 = 0.0;
+  double v2 = 0.0;
+
+  if (direction == 0 || !finite_target_value(target, &center))
+    return NULL;
+
+  step = fmax(1e-6, fabs(center) * 1e-6);
+  if (!eval_real_at(expr, var, center + (direction > 0 ? step : -step), &v1) ||
+      !eval_real_at(expr, var,
+                    center + (direction > 0 ? step * 0.5 : -step * 0.5), &v2))
+    return NULL;
+
+  if (isfinite(v1) && isfinite(v2) && fabs(v1 - v2) < 1e-7)
+    return ast_number(v2);
+
+  return NULL;
 }
 
 static int is_inf_reciprocal_form(const AstNode *node) {
@@ -218,7 +321,7 @@ static int split_fraction(const AstNode *expr, AstNode **num, AstNode **den);
 static LimitStatus direct_fraction_substitution(const AstNode *expr,
                                                 const char *var,
                                                 const AstNode *target,
-                                                AstNode **out) {
+                                                int direction, AstNode **out) {
   AstNode *num = NULL;
   AstNode *den = NULL;
   if (!split_fraction(expr, &num, &den))
@@ -226,30 +329,70 @@ static LimitStatus direct_fraction_substitution(const AstNode *expr,
 
   LimitClass num_class = classify_at(num, var, target);
   LimitClass den_class = classify_at(den, var, target);
-  ast_free(num);
-  ast_free(den);
-
   if ((num_class == LIMIT_CLASS_ZERO && den_class == LIMIT_CLASS_ZERO) ||
-      (num_class == LIMIT_CLASS_INF && den_class == LIMIT_CLASS_INF))
+      (num_class == LIMIT_CLASS_INF && den_class == LIMIT_CLASS_INF)) {
+    if (direction != 0 && num_class == LIMIT_CLASS_ZERO &&
+        den_class == LIMIT_CLASS_ZERO && num->type == AST_FUNC_CALL &&
+        strcmp(num->as.call.name, "abs") == 0 && num->as.call.nargs == 1 &&
+        ast_equal(num->as.call.args[0], den)) {
+      int sign = sign_near(den, var, target, direction);
+      if (sign != 0) {
+        ast_free(num);
+        ast_free(den);
+        *out = ast_number(sign);
+        return LIMIT_DIRECT_OK;
+      }
+    }
+    AstNode *probed = directed_quotient_probe(expr, var, target, direction);
+    ast_free(num);
+    ast_free(den);
+    if (probed) {
+      *out = probed;
+      return LIMIT_DIRECT_OK;
+    }
     return LIMIT_INDETERMINATE;
+  }
 
   if (num_class == LIMIT_CLASS_FINITE && den_class == LIMIT_CLASS_ZERO) {
-    *out = ast_variable("inf", 3);
+    int num_sign = sign_at(num, var, target);
+    int den_sign = 0;
+    if (direction != 0) {
+      den_sign = sign_near(den, var, target, direction);
+    } else {
+      int left = sign_near(den, var, target, -1);
+      int right = sign_near(den, var, target, 1);
+      if (left != 0 && left == right)
+        den_sign = left;
+      else if (left != 0 && right != 0) {
+        ast_free(num);
+        ast_free(den);
+        *out = ast_undefined();
+        return LIMIT_DIRECT_OK;
+      }
+    }
+    ast_free(num);
+    ast_free(den);
+    *out = ast_infinity(num_sign && den_sign ? num_sign * den_sign : 1);
     return LIMIT_DIRECT_OK;
   }
 
   if (num_class == LIMIT_CLASS_FINITE && den_class == LIMIT_CLASS_INF) {
+    ast_free(num);
+    ast_free(den);
     *out = ast_number(0);
     return LIMIT_DIRECT_OK;
   }
 
+  ast_free(num);
+  ast_free(den);
   return LIMIT_UNSUPPORTED;
 }
 
 static LimitStatus direct_substitution(const AstNode *expr, const char *var,
-                                       const AstNode *target, AstNode **out) {
+                                       const AstNode *target, int direction,
+                                       AstNode **out) {
   LimitStatus fraction_status =
-      direct_fraction_substitution(expr, var, target, out);
+      direct_fraction_substitution(expr, var, target, direction, out);
   if (fraction_status != LIMIT_UNSUPPORTED)
     return fraction_status;
 
@@ -287,9 +430,16 @@ static LimitStatus direct_substitution(const AstNode *expr, const char *var,
     return LIMIT_DIRECT_OK;
   }
 
-  if (is_inf_node(simplified) || contains_inf(simplified)) {
+  if (is_inf_node(simplified)) {
+    int sign = inf_sign(simplified);
     ast_free(simplified);
-    *out = ast_variable("inf", 3);
+    *out = ast_infinity(sign);
+    return LIMIT_DIRECT_OK;
+  }
+
+  if (contains_inf(simplified)) {
+    ast_free(simplified);
+    *out = ast_infinity(1);
     return LIMIT_DIRECT_OK;
   }
 
@@ -363,22 +513,22 @@ static int split_fraction(const AstNode *expr, AstNode **num, AstNode **den) {
 }
 
 static AstNode *limit_lhopital(const AstNode *expr, const char *var,
-                               const AstNode *target, int depth);
+                               const AstNode *target, int direction, int depth);
 
 static AstNode *limit_inner(const AstNode *expr, const char *var,
-                            const AstNode *target, int depth) {
+                            const AstNode *target, int direction, int depth) {
   AstNode *direct = NULL;
   LimitStatus status;
 
   if (!expr || depth > 8)
     return NULL;
 
-  status = direct_substitution(expr, var, target, &direct);
+  status = direct_substitution(expr, var, target, direction, &direct);
   if (status == LIMIT_DIRECT_OK)
     return direct;
 
   if (status == LIMIT_INDETERMINATE) {
-    AstNode *result = limit_lhopital(expr, var, target, depth + 1);
+    AstNode *result = limit_lhopital(expr, var, target, direction, depth + 1);
     if (result)
       return result;
   }
@@ -387,14 +537,15 @@ static AstNode *limit_inner(const AstNode *expr, const char *var,
   if (!normalized)
     return NULL;
 
-  status = direct_substitution(normalized, var, target, &direct);
+  status = direct_substitution(normalized, var, target, direction, &direct);
   if (status == LIMIT_DIRECT_OK) {
     ast_free(normalized);
     return direct;
   }
 
   if (status == LIMIT_INDETERMINATE) {
-    AstNode *result = limit_lhopital(normalized, var, target, depth + 1);
+    AstNode *result =
+        limit_lhopital(normalized, var, target, direction, depth + 1);
     ast_free(normalized);
     return result;
   }
@@ -404,7 +555,8 @@ static AstNode *limit_inner(const AstNode *expr, const char *var,
 }
 
 static AstNode *limit_lhopital(const AstNode *expr, const char *var,
-                               const AstNode *target, int depth) {
+                               const AstNode *target, int direction,
+                               int depth) {
   AstNode *num = NULL;
   AstNode *den = NULL;
   if (!split_fraction(expr, &num, &den))
@@ -430,15 +582,21 @@ static AstNode *limit_lhopital(const AstNode *expr, const char *var,
   }
 
   AstNode *quotient = ast_binop(OP_DIV, dnum, dden);
-  AstNode *result = limit_inner(quotient, var, target, depth);
+  AstNode *result = limit_inner(quotient, var, target, direction, depth);
   ast_free(quotient);
   return result;
 }
 
 AstNode *sym_limit(const AstNode *expr, const char *var,
                    const AstNode *target) {
+  return sym_limit_directed(expr, var, target, 0);
+}
+
+AstNode *sym_limit_directed(const AstNode *expr, const char *var,
+                            const AstNode *target, int direction) {
   if (!expr || !var || !target)
     return NULL;
 
-  return limit_inner(expr, var, target, 0);
+  direction = direction < 0 ? -1 : (direction > 0 ? 1 : 0);
+  return limit_inner(expr, var, target, direction, 0);
 }
