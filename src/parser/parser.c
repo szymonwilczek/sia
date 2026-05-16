@@ -307,7 +307,7 @@ static AstNode *parse_factor(Parser *p) {
   return left;
 }
 
-static AstNode *parse_expr(Parser *p) {
+static AstNode *parse_addsub(Parser *p) {
   AstNode *left = parse_factor(p);
   if (!left)
     return NULL;
@@ -321,6 +321,29 @@ static AstNode *parse_expr(Parser *p) {
       return NULL;
     }
     left = ast_binop(op, left, right);
+  }
+  return left;
+}
+
+static AstNode *parse_expr(Parser *p) {
+  AstNode *left = parse_addsub(p);
+  if (!left)
+    return NULL;
+
+  if (match(p, TOK_EQ)) {
+    advance(p);
+    AstNode *right = parse_addsub(p);
+    if (!right) {
+      ast_free(left);
+      return NULL;
+    }
+    if (match(p, TOK_EQ)) {
+      set_error(p, "chained '=' not supported");
+      ast_free(left);
+      ast_free(right);
+      return NULL;
+    }
+    return ast_eq(left, right);
   }
   return left;
 }

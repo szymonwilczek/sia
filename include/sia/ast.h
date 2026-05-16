@@ -12,7 +12,8 @@ typedef enum {
   AST_UNARY_NEG,
   AST_FUNC_CALL,
   AST_LIMIT,
-  AST_MATRIX
+  AST_MATRIX,
+  AST_EQ
 } AstType;
 
 typedef enum { OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_POW } BinOpKind;
@@ -53,6 +54,11 @@ struct AstNode {
       size_t rows;
       size_t cols;
     } matrix;
+
+    struct {
+      AstNode *lhs;
+      AstNode *rhs;
+    } eq;
   } as;
 };
 
@@ -67,6 +73,7 @@ AstNode *ast_func_call(const char *name, size_t namelen, AstNode **args,
 AstNode *ast_limit(AstNode *expr, const char *var, size_t varlen,
                    AstNode *target);
 AstNode *ast_matrix(AstNode **elements, size_t rows, size_t cols);
+AstNode *ast_eq(AstNode *lhs, AstNode *rhs);
 
 AstNode *ast_clone(const AstNode *node);
 void ast_free(AstNode *node);

@@ -3,8 +3,8 @@
 #include "sia/limits.h"
 #include "sia/logarithm.h"
 #include "sia/number_theory.h"
-#include "symbolic_internal.h"
 #include "sia/trigonometry.h"
+#include "symbolic_internal.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -511,6 +511,11 @@ AstNode *sym_simplify(AstNode *node) {
       node->as.matrix.elements[i] = sym_simplify(node->as.matrix.elements[i]);
     return node;
   }
+
+  case AST_EQ:
+    node->as.eq.lhs = sym_simplify(node->as.eq.lhs);
+    node->as.eq.rhs = sym_simplify(node->as.eq.rhs);
+    return node;
 
   case AST_LIMIT: {
     AstNode *result = NULL;
@@ -1558,6 +1563,10 @@ static AstNode *simplify_subexpressions(AstNode *node) {
     node->as.limit.expr = simplify_subexpressions(node->as.limit.expr);
     node->as.limit.target = simplify_subexpressions(node->as.limit.target);
     return node;
+  case AST_EQ:
+    node->as.eq.lhs = simplify_subexpressions(node->as.eq.lhs);
+    node->as.eq.rhs = simplify_subexpressions(node->as.eq.rhs);
+    return node;
   case AST_BINOP:
     break;
   }
@@ -2118,6 +2127,8 @@ AstNode *sym_expand(AstNode *node) {
     return ast_limit(sym_expand(node->as.limit.expr), node->as.limit.var,
                      strlen(node->as.limit.var),
                      sym_expand(node->as.limit.target));
+  case AST_EQ:
+    return ast_eq(sym_expand(node->as.eq.lhs), sym_expand(node->as.eq.rhs));
   case AST_BINOP: {
     AstNode *L = sym_expand(node->as.binop.left);
     AstNode *R = sym_expand(node->as.binop.right);

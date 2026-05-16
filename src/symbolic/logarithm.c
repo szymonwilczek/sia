@@ -48,6 +48,9 @@ static int ast_equal(const AstNode *a, const AstNode *b) {
         return 0;
     }
     return 1;
+  case AST_EQ:
+    return ast_equal(a->as.eq.lhs, b->as.eq.lhs) &&
+           ast_equal(a->as.eq.rhs, b->as.eq.rhs);
   }
   return 0;
 }

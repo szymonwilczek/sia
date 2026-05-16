@@ -249,6 +249,9 @@ static AstNode *substitute_params(const AstNode *node, char **params,
     free(elems);
     return m;
   }
+  case AST_EQ:
+    return ast_eq(substitute_params(node->as.eq.lhs, params, args, n),
+                  substitute_params(node->as.eq.rhs, params, args, n));
   }
   return NULL;
 }
@@ -315,6 +318,11 @@ static AstNode *substitute_vars(AstNode *node, const SymTab *st) {
   case AST_LIMIT:
     node->as.limit.target = substitute_vars(node->as.limit.target, st);
     node->as.limit.expr = substitute_vars(node->as.limit.expr, st);
+    return node;
+
+  case AST_EQ:
+    node->as.eq.lhs = substitute_vars(node->as.eq.lhs, st);
+    node->as.eq.rhs = substitute_vars(node->as.eq.rhs, st);
     return node;
   }
   return node;

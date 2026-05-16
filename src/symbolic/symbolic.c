@@ -35,6 +35,9 @@ int sym_contains_var(const AstNode *n, const char *var) {
         return 1;
     return 0;
   }
+  case AST_EQ:
+    return sym_contains_var(n->as.eq.lhs, var) ||
+           sym_contains_var(n->as.eq.rhs, var);
   }
   return 0;
 }
@@ -110,6 +113,16 @@ AstNode *sym_subs(const AstNode *expr, const char *var, const AstNode *val) {
         ast_matrix(elems, expr->as.matrix.rows, expr->as.matrix.cols);
     free(elems);
     return result;
+  }
+  case AST_EQ: {
+    AstNode *l = sym_subs(expr->as.eq.lhs, var, val);
+    AstNode *r = sym_subs(expr->as.eq.rhs, var, val);
+    if (!l || !r) {
+      ast_free(l);
+      ast_free(r);
+      return NULL;
+    }
+    return ast_eq(l, r);
   }
   }
 

@@ -75,6 +75,8 @@ static int contains_inf(const AstNode *node) {
         return 1;
     return 0;
   }
+  case AST_EQ:
+    return contains_inf(node->as.eq.lhs) || contains_inf(node->as.eq.rhs);
   }
   return 0;
 }

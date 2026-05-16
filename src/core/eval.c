@@ -248,6 +248,8 @@ EvalResult eval(const AstNode *node, const SymTab *st) {
     return fail("cannot evaluate limit as scalar");
   case AST_MATRIX:
     return fail("cannot evaluate matrix as scalar");
+  case AST_EQ:
+    return fail("cannot evaluate equation as scalar");
   }
 
   return fail("unknown node type");

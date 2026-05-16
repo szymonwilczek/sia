@@ -450,6 +450,12 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
     sb_puts(sb, "\n\\end{pmatrix}");
     break;
   }
+
+  case AST_EQ:
+    latex_node(node->as.eq.lhs, sb, NULL, 0);
+    sb_puts(sb, " = ");
+    latex_node(node->as.eq.rhs, sb, NULL, 0);
+    break;
   }
 }
 

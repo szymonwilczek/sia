@@ -206,6 +206,17 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
     if (!sym_contains_var(expr, var))
       return ast_number(0);
     return NULL;
+
+  case AST_EQ: {
+    AstNode *l = sym_diff(expr->as.eq.lhs, var);
+    AstNode *r = sym_diff(expr->as.eq.rhs, var);
+    if (!l || !r) {
+      ast_free(l);
+      ast_free(r);
+      return NULL;
+    }
+    return ast_eq(l, r);
+  }
   }
 
   return NULL;

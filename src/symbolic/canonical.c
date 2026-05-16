@@ -19,8 +19,10 @@ static int node_sort_key(const AstNode *n) {
     return 5;
   case AST_MATRIX:
     return 6;
+  case AST_EQ:
+    return 7;
   }
-  return 6;
+  return 7;
 }
 
 static int node_compare(const AstNode *a, const AstNode *b) {
@@ -73,6 +75,12 @@ static int node_compare(const AstNode *a, const AstNode *b) {
     if (c != 0)
       return c;
     return node_compare(a->as.binop.right, b->as.binop.right);
+  }
+  case AST_EQ: {
+    int c = node_compare(a->as.eq.lhs, b->as.eq.lhs);
+    if (c != 0)
+      return c;
+    return node_compare(a->as.eq.rhs, b->as.eq.rhs);
   }
   case AST_MATRIX: {
     size_t n = (a->as.matrix.rows < b->as.matrix.rows)   ? -1
@@ -138,6 +146,11 @@ AstNode *ast_canonicalize(AstNode *node) {
   case AST_LIMIT:
     node->as.limit.expr = ast_canonicalize(node->as.limit.expr);
     node->as.limit.target = ast_canonicalize(node->as.limit.target);
+    return node;
+
+  case AST_EQ:
+    node->as.eq.lhs = ast_canonicalize(node->as.eq.lhs);
+    node->as.eq.rhs = ast_canonicalize(node->as.eq.rhs);
     return node;
 
   case AST_BINOP:

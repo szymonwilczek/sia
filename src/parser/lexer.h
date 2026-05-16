@@ -18,6 +18,7 @@ typedef enum {
   TOK_SEMICOLON,
   TOK_LBRACKET,
   TOK_RBRACKET,
+  TOK_EQ,
   TOK_EOF,
   TOK_ERROR
 } TokenType;

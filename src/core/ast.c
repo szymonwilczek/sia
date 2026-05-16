@@ -102,6 +102,14 @@ AstNode *ast_matrix(AstNode **elements, size_t rows, size_t cols) {
   return n;
 }
 
+AstNode *ast_eq(AstNode *lhs, AstNode *rhs) {
+  AstNode *n = xmalloc(sizeof *n);
+  n->type = AST_EQ;
+  n->as.eq.lhs = lhs;
+  n->as.eq.rhs = rhs;
+  return n;
+}
+
 AstNode *ast_clone(const AstNode *node) {
   if (!node)
     return NULL;
@@ -144,6 +152,8 @@ AstNode *ast_clone(const AstNode *node) {
     free(elems);
     return r;
   }
+  case AST_EQ:
+    return ast_eq(ast_clone(node->as.eq.lhs), ast_clone(node->as.eq.rhs));
   }
   return NULL;
 }
@@ -183,6 +193,10 @@ void ast_free(AstNode *node) {
     free(node->as.matrix.elements);
     break;
   }
+  case AST_EQ:
+    ast_free(node->as.eq.lhs);
+    ast_free(node->as.eq.rhs);
+    break;
   }
   free(node);
 }
@@ -401,6 +415,11 @@ static void ast_serialize(const AstNode *node, StrBuf *sb,
     sb_append(sb, ", ", 2);
     ast_serialize(node->as.limit.target, sb, NULL, 0);
     sb_append(sb, ")", 1);
+    break;
+  case AST_EQ:
+    ast_serialize(node->as.eq.lhs, sb, NULL, 0);
+    sb_append(sb, " = ", 3);
+    ast_serialize(node->as.eq.rhs, sb, NULL, 0);
     break;
   case AST_MATRIX: {
     sb_append(sb, "[", 1);
