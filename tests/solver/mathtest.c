@@ -1,5 +1,5 @@
-#include "../test_support.h"
 #include "../test_suites.h"
+#include "../test_support.h"
 
 static Complex eval_expr_at(const AstNode *expr, Complex x) {
   SymTab st;
@@ -54,7 +54,127 @@ static void test_solver_newton_root_satisfies_transcendental(void) {
   PASS();
 }
 
+static int complex_in(const Complex *roots, size_t count, Complex target,
+                      double eps) {
+  for (size_t i = 0; i < count; i++)
+    if (c_abs(c_sub(roots[i], target)) < eps)
+      return 1;
+  return 0;
+}
+
+static void test_solver_linear_explicit_equation(void) {
+  TEST("solve: linear AST_EQ 2*x + 1 = 7 -> x = 3");
+  ParseResult pr = parse("2*x + 1 = 7");
+  ASSERT_TRUE(pr.root != NULL);
+  ASSERT_TRUE(pr.root->type == AST_EQ);
+
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_CNEAR(r.roots[0], c_real(3.0), 1e-9);
+
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solver_quadratic_explicit_equation(void) {
+  TEST("solve: quadratic AST_EQ x^2 = 4 -> {-2, 2}");
+  ParseResult pr = parse("x^2 = 4");
+  ASSERT_TRUE(pr.root != NULL);
+  ASSERT_TRUE(pr.root->type == AST_EQ);
+
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 2);
+  ASSERT_TRUE(complex_in(r.roots, r.count, c_real(2.0), 1e-9));
+  ASSERT_TRUE(complex_in(r.roots, r.count, c_real(-2.0), 1e-9));
+
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solver_rational_reduces_to_polynomial(void) {
+  TEST("solve: rational (x^2-1)/(x-1) = 0 -> {-1}");
+  ParseResult pr = parse("(x^2 - 1)/(x - 1) = 0");
+  ASSERT_TRUE(pr.root != NULL);
+
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_CNEAR(r.roots[0], c_real(-1.0), 1e-9);
+
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solver_rational_extraneous_root_filtered(void) {
+  TEST("solve: rational (x^2-1)/(x-1) = 2 has no valid roots");
+  ParseResult pr = parse("(x^2 - 1)/(x - 1) = 2");
+  ASSERT_TRUE(pr.root != NULL);
+
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 0);
+
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solver_rational_valid_root_preserved(void) {
+  TEST("solve: rational 1/(x-3) = 1 -> x = 4 (forbidden x=3 unaffected)");
+  ParseResult pr = parse("1/(x - 3) = 1");
+  ASSERT_TRUE(pr.root != NULL);
+
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 1);
+  ASSERT_CNEAR(r.roots[0], c_real(4.0), 1e-9);
+
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
+static void test_solver_equation_backward_compat(void) {
+  TEST("solve: implicit form x^2 - 4 still resolves to {-2, 2}");
+  ParseResult pr = parse("x^2 - 4");
+  ASSERT_TRUE(pr.root != NULL);
+  ASSERT_TRUE(pr.root->type != AST_EQ);
+
+  SymTab st;
+  memset(&st, 0, sizeof(st));
+  SolveResult r = sym_solve(pr.root, "x", c_real(0), &st);
+  ASSERT_TRUE(r.ok);
+  ASSERT_EQ((int)r.count, 2);
+  ASSERT_TRUE(complex_in(r.roots, r.count, c_real(2.0), 1e-9));
+  ASSERT_TRUE(complex_in(r.roots, r.count, c_real(-2.0), 1e-9));
+
+  solve_result_free(&r);
+  parse_result_free(&pr);
+  PASS();
+}
+
 void tests_solver_mathtest(void) {
   test_solver_roots_satisfy_polynomial();
   test_solver_newton_root_satisfies_transcendental();
+  test_solver_linear_explicit_equation();
+  test_solver_quadratic_explicit_equation();
+  test_solver_rational_reduces_to_polynomial();
+  test_solver_rational_extraneous_root_filtered();
+  test_solver_rational_valid_root_preserved();
+  test_solver_equation_backward_compat();
 }
