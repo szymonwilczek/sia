@@ -1,5 +1,5 @@
-#include "../test_support.h"
 #include "../test_suites.h"
+#include "../test_support.h"
 
 static void test_eval_arithmetic(void) {
   TEST("eval: basic arithmetic 2+3*4");
@@ -13,7 +13,6 @@ static void test_eval_arithmetic(void) {
   PASS();
 }
 
-
 static void test_eval_power(void) {
   TEST("eval: power 2^10");
   ParseResult r = parse("2^10");
@@ -25,6 +24,32 @@ static void test_eval_power(void) {
   PASS();
 }
 
+static void test_eval_infinite_power(void) {
+  TEST("eval: infinite power boundaries");
+
+  ParseResult r1 = parse("2^inf");
+  EvalResult e1 = eval(r1.root, NULL);
+  ASSERT_TRUE(e1.ok);
+  ASSERT_TRUE(isinf(e1.value.re) && e1.value.re > 0.0);
+  eval_result_free(&e1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("2^-inf");
+  EvalResult e2 = eval(r2.root, NULL);
+  ASSERT_TRUE(e2.ok);
+  ASSERT_CNEAR(e2.value, c_real(0.0), 1e-9);
+  eval_result_free(&e2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("inf^0");
+  EvalResult e3 = eval(r3.root, NULL);
+  ASSERT_TRUE(e3.ok);
+  ASSERT_CNEAR(e3.value, c_real(1.0), 1e-9);
+  eval_result_free(&e3);
+  parse_result_free(&r3);
+
+  PASS();
+}
 
 static void test_eval_functions(void) {
   TEST("eval: sin(0) = 0");
@@ -37,7 +62,6 @@ static void test_eval_functions(void) {
   PASS();
 }
 
-
 static void test_eval_cos(void) {
   TEST("eval: cos(0) = 1");
   ParseResult r = parse("cos(0)");
@@ -49,7 +73,6 @@ static void test_eval_cos(void) {
   PASS();
 }
 
-
 static void test_eval_sqrt(void) {
   TEST("eval: sqrt(144) = 12");
   ParseResult r = parse("sqrt(144)");
@@ -60,7 +83,6 @@ static void test_eval_sqrt(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_eval_inverse_trig(void) {
   TEST("eval: inverse trig principal values");
@@ -119,7 +141,6 @@ static void test_eval_inverse_trig(void) {
   PASS();
 }
 
-
 static void test_eval_elementary_functions(void) {
   TEST("eval: abs(-16), log(1000, 10), log(8, 2)");
 
@@ -147,7 +168,6 @@ static void test_eval_elementary_functions(void) {
   PASS();
 }
 
-
 static void test_eval_pi(void) {
   TEST("eval: pi constant");
   ParseResult r = parse("pi");
@@ -158,7 +178,6 @@ static void test_eval_pi(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_eval_complex_expr(void) {
   TEST("eval: (3+4)*(2-1)^2 = 7");
@@ -171,7 +190,6 @@ static void test_eval_complex_expr(void) {
   PASS();
 }
 
-
 static void test_eval_div_zero(void) {
   TEST("eval: division by zero error");
   ParseResult r = parse("1/0");
@@ -183,7 +201,6 @@ static void test_eval_div_zero(void) {
   PASS();
 }
 
-
 static void test_eval_nested_func(void) {
   TEST("eval: sqrt(abs(-16)) = 4");
   ParseResult r = parse("sqrt(abs(-16))");
@@ -194,7 +211,6 @@ static void test_eval_nested_func(void) {
   parse_result_free(&r);
   PASS();
 }
-
 
 static void test_eval_symtab(void) {
   TEST("eval: symbol table lookup");
@@ -210,7 +226,6 @@ static void test_eval_symtab(void) {
   symtab_free(&st);
   PASS();
 }
-
 
 static void test_eval_hyperbolic(void) {
   TEST("eval: sinh/cosh/tanh real values");
@@ -258,7 +273,6 @@ static void test_eval_hyperbolic(void) {
   PASS();
 }
 
-
 static void test_eval_complex_domain(void) {
   TEST("eval: complex results for ln(-1), sqrt(-1), asin(2)");
   ParseResult r1 = parse("ln(-1)");
@@ -296,10 +310,10 @@ static void test_eval_complex_domain(void) {
 
 /* Symbolic */
 
-
 void tests_evaluation_functional(void) {
   test_eval_arithmetic();
   test_eval_power();
+  test_eval_infinite_power();
   test_eval_functions();
   test_eval_cos();
   test_eval_sqrt();

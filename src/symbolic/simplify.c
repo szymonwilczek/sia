@@ -194,6 +194,15 @@ static int infinity_sign(const AstNode *n) {
   return 0;
 }
 
+static int positive_real_number_value(const AstNode *n, double *out) {
+  if (!n || n->type != AST_NUMBER || !c_is_real(n->as.number) ||
+      !isfinite(n->as.number.re) || n->as.number.re <= 0.0)
+    return 0;
+  if (out)
+    *out = n->as.number.re;
+  return 1;
+}
+
 typedef struct {
   AstNode *base;
   AstNode *exp;
@@ -1235,16 +1244,6 @@ AstNode *sym_simplify(AstNode *node) {
     break;
 
   case OP_POW:
-    if (is_inf_node(L) && is_num(R) && c_is_real(R->as.number)) {
-      double exp = R->as.number.re;
-      int sign = infinity_sign(L);
-      ast_free(node);
-      if (exp < 0.0)
-        return ast_number(0);
-      if (sign < 0 && exp == (int)exp && ((int)exp % 2 != 0))
-        return ast_infinity(-1);
-      return ast_infinity(1);
-    }
     if (is_number(R, 0)) {
       ast_free(node);
       return ast_number(1);
@@ -1261,6 +1260,36 @@ AstNode *sym_simplify(AstNode *node) {
     if (is_number(L, 1)) {
       ast_free(node);
       return ast_number(1);
+    }
+    if (is_inf_node(R)) {
+      int exp_sign = infinity_sign(R);
+      if (is_inf_node(L)) {
+        ast_free(node);
+        return exp_sign > 0 ? ast_infinity(1) : ast_number(0);
+      }
+
+      double base = 0.0;
+      if (positive_real_number_value(L, &base)) {
+        ast_free(node);
+        if (base > 1.0)
+          return exp_sign > 0 ? ast_infinity(1) : ast_number(0);
+        if (base < 1.0)
+          return exp_sign > 0 ? ast_number(0) : ast_infinity(1);
+        return ast_number(1);
+      }
+
+      ast_free(node);
+      return ast_undefined();
+    }
+    if (is_inf_node(L) && is_num(R) && c_is_real(R->as.number)) {
+      double exp = R->as.number.re;
+      int sign = infinity_sign(L);
+      ast_free(node);
+      if (exp < 0.0)
+        return ast_number(0);
+      if (sign < 0 && exp == (int)exp && ((int)exp % 2 != 0))
+        return ast_infinity(-1);
+      return ast_infinity(1);
     }
     /* sqrt(x)^2 -> x */
     if (is_number(R, 2) && is_call1(L, "sqrt")) {

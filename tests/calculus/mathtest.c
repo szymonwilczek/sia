@@ -110,6 +110,22 @@ static void test_signed_infinity_arithmetic(void) {
   PASS();
 }
 
+static void test_infinite_power_simplification(void) {
+  TEST("calculus: infinite power simplification");
+  ASSERT_TRUE(simplifies_to("2^inf", "inf"));
+  ASSERT_TRUE(simplifies_to("inf^inf", "inf"));
+  ASSERT_TRUE(simplifies_to("2^-inf", "0"));
+  ASSERT_TRUE(simplifies_to("inf^0", "1"));
+  PASS();
+}
+
+static void test_directional_abs_denominator_limit(void) {
+  TEST("calculus: directional limit through abs denominator");
+  ASSERT_TRUE(simplifies_to("lim((x^2 - 9) / abs(x - 3), x, 3-)", "-6"));
+  ASSERT_TRUE(simplifies_to("lim((x^2 - 9) / abs(x - 3), x, 3+)", "6"));
+  PASS();
+}
+
 void tests_calculus_mathtest(void) {
   test_symbolic_derivative_matches_finite_difference();
   test_integral_derivative_roundtrip_polynomial();
@@ -117,4 +133,6 @@ void tests_calculus_mathtest(void) {
   test_directional_limit_abs_ratio();
   test_two_sided_vertical_asymptotes();
   test_signed_infinity_arithmetic();
+  test_infinite_power_simplification();
+  test_directional_abs_denominator_limit();
 }

@@ -20,6 +20,45 @@ static EvalResult fail(const char *msg) {
   return (EvalResult){.value = c_real(0.0), .ok = 0, .error = strdup(msg)};
 }
 
+static int real_infinite_sign(Complex value) {
+  if (!c_is_real(value) || !isinf(value.re))
+    return 0;
+  return value.re < 0.0 ? -1 : 1;
+}
+
+static EvalResult eval_infinite_power(Complex base, Complex exp, int *handled) {
+  int base_inf = real_infinite_sign(base);
+  int exp_inf = real_infinite_sign(exp);
+  *handled = 1;
+
+  if (c_is_zero(exp))
+    return ok_real(1.0);
+
+  if (exp_inf) {
+    if (base_inf)
+      return exp_inf > 0 ? ok_real(INFINITY) : ok_real(0.0);
+    if (!c_is_real(base) || !isfinite(base.re) || base.re < 0.0)
+      return fail("undefined infinite power");
+    if (base.re > 1.0)
+      return exp_inf > 0 ? ok_real(INFINITY) : ok_real(0.0);
+    if (base.re < 1.0)
+      return exp_inf > 0 ? ok_real(0.0) : ok_real(INFINITY);
+    return ok_real(1.0);
+  }
+
+  if (base_inf && c_is_real(exp) && isfinite(exp.re)) {
+    if (exp.re < 0.0)
+      return ok_real(0.0);
+    return ok_real(base_inf < 0 && exp.re == (int)exp.re &&
+                           ((int)exp.re % 2 != 0)
+                       ? -INFINITY
+                       : INFINITY);
+  }
+
+  *handled = 0;
+  return ok_real(0.0);
+}
+
 static EvalResult eval_call(const char *name, Complex *args, size_t nargs) {
   AstNode node;
   node.type = AST_FUNC_CALL;
@@ -221,8 +260,16 @@ EvalResult eval(const AstNode *node, const SymTab *st) {
       if (c_is_zero(r.value))
         return fail("division by zero");
       return ok(c_div(l.value, r.value));
-    case OP_POW:
+    case OP_POW: {
+      int handled = 0;
+      EvalResult pow_result = eval_infinite_power(l.value, r.value, &handled);
+      if (handled) {
+        eval_result_free(&l);
+        eval_result_free(&r);
+        return pow_result;
+      }
       return ok(c_pow(l.value, r.value));
+    }
     }
     return fail("unknown operator");
   }

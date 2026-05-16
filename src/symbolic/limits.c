@@ -107,6 +107,8 @@ static LimitClass classify_node(const AstNode *node) {
   return LIMIT_CLASS_OTHER;
 }
 
+static int has_zero_denominator(const AstNode *node);
+
 static int real_sign(double value) {
   if (value > 1e-12)
     return 1;
@@ -196,6 +198,40 @@ static AstNode *directed_quotient_probe(const AstNode *expr, const char *var,
     return ast_number(v2);
 
   return NULL;
+}
+
+static AstNode *directed_abs_denominator_limit(const AstNode *num,
+                                               const AstNode *den,
+                                               const char *var,
+                                               const AstNode *target,
+                                               int direction) {
+  if (direction == 0 || !den || den->type != AST_FUNC_CALL ||
+      strcmp(den->as.call.name, "abs") != 0 || den->as.call.nargs != 1)
+    return NULL;
+
+  AstNode *arg = den->as.call.args[0];
+  int sign = sign_near(arg, var, target, direction);
+  if (sign == 0)
+    return NULL;
+
+  AstNode *signed_den =
+      sign > 0 ? ast_clone(arg) : ast_unary_neg(ast_clone(arg));
+  AstNode *quotient = ast_binop(OP_DIV, ast_clone(num), signed_den);
+  AstNode *simplified = sym_full_simplify(quotient);
+  AstNode *sub = simplified ? sym_subs(simplified, var, target) : NULL;
+  AstNode *result = sub ? sym_full_simplify(sub) : NULL;
+
+  ast_free(simplified);
+  if (!result)
+    return NULL;
+
+  if (classify_node(result) == LIMIT_CLASS_OTHER ||
+      has_zero_denominator(result)) {
+    ast_free(result);
+    return NULL;
+  }
+
+  return result;
 }
 
 static int is_inf_reciprocal_form(const AstNode *node) {
@@ -331,6 +367,15 @@ static LimitStatus direct_fraction_substitution(const AstNode *expr,
   LimitClass den_class = classify_at(den, var, target);
   if ((num_class == LIMIT_CLASS_ZERO && den_class == LIMIT_CLASS_ZERO) ||
       (num_class == LIMIT_CLASS_INF && den_class == LIMIT_CLASS_INF)) {
+    AstNode *abs_result =
+        directed_abs_denominator_limit(num, den, var, target, direction);
+    if (abs_result) {
+      ast_free(num);
+      ast_free(den);
+      *out = abs_result;
+      return LIMIT_DIRECT_OK;
+    }
+
     if (direction != 0 && num_class == LIMIT_CLASS_ZERO &&
         den_class == LIMIT_CLASS_ZERO && num->type == AST_FUNC_CALL &&
         strcmp(num->as.call.name, "abs") == 0 && num->as.call.nargs == 1 &&
