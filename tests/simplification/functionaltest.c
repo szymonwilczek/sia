@@ -188,6 +188,36 @@ static void test_simplify_exp_ln(void) {
   PASS();
 }
 
+static void test_simplify_sqrt_power_domain_guard(void) {
+  TEST("simplify: sqrt powers preserve unknown domain");
+
+  ParseResult r1 = parse("sqrt(x)^2");
+  AstNode *s1 = sym_full_simplify(ast_clone(r1.root));
+  char *str1 = ast_to_string(s1);
+  ASSERT_STR_EQ(str1, "sqrt(x)^2");
+  free(str1);
+  ast_free(s1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("sqrt(abs(x))^2");
+  AstNode *s2 = sym_full_simplify(ast_clone(r2.root));
+  char *str2 = ast_to_string(s2);
+  ASSERT_STR_EQ(str2, "abs(x)");
+  free(str2);
+  ast_free(s2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("sqrt(x)^4");
+  AstNode *s3 = sym_full_simplify(ast_clone(r3.root));
+  char *str3 = ast_to_string(s3);
+  ASSERT_STR_EQ(str3, "sqrt(x)^4");
+  free(str3);
+  ast_free(s3);
+  parse_result_free(&r3);
+
+  PASS();
+}
+
 static void test_simplify_elementary_functions(void) {
   TEST("simplify: abs(-16), sqrt(49), log(1000, 10), log(8, 2)");
 
@@ -358,6 +388,7 @@ void tests_simplification_functional(void) {
   test_simplify_mul_reciprocal();
   test_simplify_cancel_div();
   test_simplify_exp_ln();
+  test_simplify_sqrt_power_domain_guard();
   test_simplify_elementary_functions();
   test_simplify_distributive();
   test_full_simplify_distribution();

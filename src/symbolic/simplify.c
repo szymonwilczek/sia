@@ -1,3 +1,4 @@
+#include "sia/assumptions.h"
 #include "sia/canonical.h"
 #include "sia/factorial.h"
 #include "sia/limits.h"
@@ -1295,16 +1296,19 @@ AstNode *sym_simplify(AstNode *node) {
         return ast_infinity(-1);
       return ast_infinity(1);
     }
-    /* sqrt(x)^2 -> x */
-    if (is_number(R, 2) && is_call1(L, "sqrt")) {
+    /* sqrt(x)^2 -> x only when x is known nonnegative; otherwise the rewrite
+     * hides the original sqrt domain restriction. */
+    if (is_number(R, 2) && is_call1(L, "sqrt") &&
+        sia_known_nonnegative(L->as.call.args[0])) {
       AstNode *inner = ast_clone(L->as.call.args[0]);
       ast_free(node);
       return inner;
     }
-    /* sqrt(x)^(2n) -> x^n */
+    /* sqrt(x)^(2n) -> x^n under the same domain guard. */
     if (is_call1(L, "sqrt") && is_num(R) && c_is_real(R->as.number) &&
         R->as.number.re > 2 && R->as.number.re == (int)R->as.number.re &&
-        (int)R->as.number.re % 2 == 0) {
+        (int)R->as.number.re % 2 == 0 &&
+        sia_known_nonnegative(L->as.call.args[0])) {
       AstNode *inner = ast_clone(L->as.call.args[0]);
       int n = (int)R->as.number.re / 2;
       ast_free(node);
