@@ -3,6 +3,7 @@
 #include "sia/eval.h"
 #include "sia/logarithm.h"
 #include "sia/symbolic.h"
+#include "symbolic_internal.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,8 +11,9 @@
 
 static SolveResult ok_roots(Complex *roots, size_t count) {
   SolveResult r;
-  r.roots = malloc(count * sizeof(Complex));
-  memcpy(r.roots, roots, count * sizeof(Complex));
+  r.roots = count ? malloc(count * sizeof(Complex)) : NULL;
+  if (count)
+    memcpy(r.roots, roots, count * sizeof(Complex));
   r.count = count;
   r.ok = 1;
   r.error = NULL;
@@ -196,6 +198,150 @@ static int extract_poly_coeffs(const AstNode *expr, const char *var,
   return deg;
 }
 
+typedef struct {
+  AstNode **items;
+  size_t count;
+  size_t cap;
+} DenomList;
+
+typedef struct {
+  Complex *items;
+  size_t count;
+  size_t cap;
+} ComplexList;
+
+static void denom_list_free(DenomList *l) {
+  for (size_t i = 0; i < l->count; i++)
+    ast_free(l->items[i]);
+  free(l->items);
+  l->items = NULL;
+  l->count = l->cap = 0;
+}
+
+static void denom_list_push(DenomList *l, AstNode *node) {
+  if (l->count == l->cap) {
+    l->cap = l->cap ? l->cap * 2 : 4;
+    l->items = realloc(l->items, l->cap * sizeof(AstNode *));
+  }
+  l->items[l->count++] = node;
+}
+
+static void cx_list_push(ComplexList *l, Complex v) {
+  if (l->count == l->cap) {
+    l->cap = l->cap ? l->cap * 2 : 4;
+    l->items = realloc(l->items, l->cap * sizeof(Complex));
+  }
+  l->items[l->count++] = v;
+}
+
+static int is_negative_integer(const AstNode *n) {
+  if (!n)
+    return 0;
+  if (n->type == AST_UNARY_NEG && n->as.unary.operand &&
+      n->as.unary.operand->type == AST_NUMBER &&
+      c_is_real(n->as.unary.operand->as.number)) {
+    double v = n->as.unary.operand->as.number.re;
+    return v == (double)(long long)v && v > 0;
+  }
+  if (n->type == AST_NUMBER && c_is_real(n->as.number)) {
+    double v = n->as.number.re;
+    return v < 0 && v == (double)(long long)v;
+  }
+  return 0;
+}
+
+static void collect_denominators(const AstNode *n, const char *var,
+                                 DenomList *out) {
+  if (!n)
+    return;
+  switch (n->type) {
+  case AST_BINOP:
+    if (n->as.binop.op == OP_DIV && sym_contains_var(n->as.binop.right, var))
+      denom_list_push(out, ast_clone(n->as.binop.right));
+    if (n->as.binop.op == OP_POW && is_negative_integer(n->as.binop.right) &&
+        sym_contains_var(n->as.binop.left, var))
+      denom_list_push(out, ast_clone(n->as.binop.left));
+    collect_denominators(n->as.binop.left, var, out);
+    collect_denominators(n->as.binop.right, var, out);
+    break;
+  case AST_UNARY_NEG:
+    collect_denominators(n->as.unary.operand, var, out);
+    break;
+  case AST_FUNC_CALL:
+    for (size_t i = 0; i < n->as.call.nargs; i++)
+      collect_denominators(n->as.call.args[i], var, out);
+    break;
+  case AST_EQ:
+    collect_denominators(n->as.eq.lhs, var, out);
+    collect_denominators(n->as.eq.rhs, var, out);
+    break;
+  default:
+    break;
+  }
+}
+
+static void collect_forbidden(const AstNode *expr, const char *var,
+                              ComplexList *out) {
+  DenomList denoms = {0};
+  collect_denominators(expr, var, &denoms);
+
+  for (size_t i = 0; i < denoms.count; i++) {
+    AstNode *d = sym_simplify(ast_clone(denoms.items[i]));
+    Complex coeffs[3];
+    int deg = extract_poly_coeffs(d, var, coeffs, 2);
+    ast_free(d);
+    if (deg <= 0)
+      continue;
+    if (deg == 1) {
+      if (c_is_zero(coeffs[1]))
+        continue;
+      Complex root = c_div(c_neg(coeffs[0]), coeffs[1]);
+      cx_list_push(out, root);
+    } else if (deg == 2) {
+      Complex b2 = c_mul(coeffs[1], coeffs[1]);
+      Complex four_ac = c_mul(c_real(4.0), c_mul(coeffs[2], coeffs[0]));
+      Complex disc = c_sub(b2, four_ac);
+      Complex sq = c_sqrt(disc);
+      Complex two_a = c_mul(c_real(2.0), coeffs[2]);
+      cx_list_push(out, c_div(c_sub(c_neg(coeffs[1]), sq), two_a));
+      cx_list_push(out, c_div(c_add(c_neg(coeffs[1]), sq), two_a));
+    }
+  }
+
+  denom_list_free(&denoms);
+}
+
+static int complex_close(Complex a, Complex b) {
+  return c_abs(c_sub(a, b)) < 1e-9;
+}
+
+static SolveResult filter_extraneous(SolveResult sr,
+                                     const ComplexList *forbidden) {
+  if (!sr.ok || sr.count == 0 || forbidden->count == 0)
+    return sr;
+
+  Complex *kept = malloc(sr.count * sizeof(Complex));
+  size_t keep = 0;
+  for (size_t i = 0; i < sr.count; i++) {
+    int bad = 0;
+    for (size_t j = 0; j < forbidden->count; j++) {
+      if (complex_close(sr.roots[i], forbidden->items[j])) {
+        bad = 1;
+        break;
+      }
+    }
+    if (!bad)
+      kept[keep++] = sr.roots[i];
+  }
+
+  free(sr.roots);
+  sr.roots = keep ? kept : NULL;
+  if (!keep)
+    free(kept);
+  sr.count = keep;
+  return sr;
+}
+
 static SolveResult solve_linear(Complex a, Complex b) {
   if (c_is_zero(a)) {
     if (c_is_zero(b))
@@ -251,8 +397,25 @@ static SolveResult solve_newton(const AstNode *f, const AstNode *df,
   return fail("Newton method did not converge (try different initial guess)");
 }
 
+static SolveResult sym_solve_core(const AstNode *expr, const char *var,
+                                  Complex x0, const SymTab *st);
+
 SolveResult sym_solve(const AstNode *expr, const char *var, Complex x0,
                       const SymTab *st) {
+  SolveResult result = sym_solve_core(expr, var, x0, st);
+
+  if (result.ok && result.count > 0) {
+    ComplexList forbidden = {0};
+    collect_forbidden(expr, var, &forbidden);
+    result = filter_extraneous(result, &forbidden);
+    free(forbidden.items);
+  }
+
+  return result;
+}
+
+static SolveResult sym_solve_core(const AstNode *expr, const char *var,
+                                  Complex x0, const SymTab *st) {
   SolveResult result;
   AstNode *simplified = NULL;
   AstNode *normalized = NULL;
@@ -260,17 +423,44 @@ SolveResult sym_solve(const AstNode *expr, const char *var, Complex x0,
   if (!expr || !var)
     return fail("null expression or variable");
 
-  /* AST_EQ(lhs, rhs)  =>  lhs - rhs (set to zero implicitly) */
+  /* AST_EQ(lhs, rhs)  =>  lhs - rhs (set to zero implicitly).
+   * Reduce rational subexpressions on each side first so (x^2-1)/(x-1)
+   * collapses to 1+x before structure-mangling canonicalization. */
   if (expr->type == AST_EQ) {
-    normalized = ast_binop(OP_SUB, ast_clone(expr->as.eq.lhs),
-                           ast_clone(expr->as.eq.rhs));
+    AstNode *l = sym_reduce_rational_subexprs(expr->as.eq.lhs);
+    AstNode *r = sym_reduce_rational_subexprs(expr->as.eq.rhs);
+    normalized = ast_binop(OP_SUB, l, r);
   } else {
-    normalized = ast_clone(expr);
+    normalized = sym_reduce_rational_subexprs(expr);
   }
 
   simplified = sym_simplify(normalized);
   if (!simplified)
     return fail("failed to simplify expression before solving");
+
+  /* if the simplified form still has var-dependent denominators, multiply
+   * through with cancellation so the rational equation becomes a
+   * polynomial. Extraneous roots are stripped later by filter_extraneous. */
+  {
+    DenomList denoms = {0};
+    collect_denominators(simplified, var, &denoms);
+    if (denoms.count > 0) {
+      /* multiply through by the product of all collected denominators,
+       * then expand and simplify so paired POW(d, -1)*d cancel. */
+      AstNode *product = ast_clone(denoms.items[0]);
+      for (size_t i = 1; i < denoms.count; i++)
+        product = ast_binop(OP_MUL, product, ast_clone(denoms.items[i]));
+      simplified = ast_binop(OP_MUL, simplified, product);
+
+      AstNode *expanded = sym_expand(simplified);
+      if (expanded) {
+        ast_free(simplified);
+        simplified = expanded;
+      }
+      simplified = sym_full_simplify(simplified);
+    }
+    denom_list_free(&denoms);
+  }
 
   if (simplified->type == AST_BINOP && simplified->as.binop.op == OP_SUB) {
     const AstNode *lhs = simplified->as.binop.left;

@@ -1014,6 +1014,14 @@ static int process_input(const char *input, int batch_mode) {
       ast_free(expr);
 
       if (sr.ok) {
+        if (sr.count == 0) {
+          if (batch_mode)
+            printf("[]");
+          else {
+            print_bold("[]");
+            putchar('\n');
+          }
+        }
         for (size_t i = 0; i < sr.count; i++) {
           char buf[64];
           format_number(buf, sizeof buf, sr.roots[i]);
