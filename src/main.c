@@ -164,10 +164,11 @@ static int is_special_function_name(const char *name) {
   return strcmp(name, "exp") == 0 || strcmp(name, "ln") == 0 ||
          strcmp(name, "log") == 0 || strcmp(name, "sin") == 0 ||
          strcmp(name, "cos") == 0 || strcmp(name, "tan") == 0 ||
-         strcmp(name, "asin") == 0 || strcmp(name, "acos") == 0 ||
-         strcmp(name, "atan") == 0 || strcmp(name, "sinh") == 0 ||
-         strcmp(name, "cosh") == 0 || strcmp(name, "tanh") == 0 ||
-         strcmp(name, "sqrt") == 0;
+         strcmp(name, "sec") == 0 || strcmp(name, "csc") == 0 ||
+         strcmp(name, "cot") == 0 || strcmp(name, "asin") == 0 ||
+         strcmp(name, "acos") == 0 || strcmp(name, "atan") == 0 ||
+         strcmp(name, "sinh") == 0 || strcmp(name, "cosh") == 0 ||
+         strcmp(name, "tanh") == 0 || strcmp(name, "sqrt") == 0;
 }
 
 static int contains_exact_symbolic_form(const AstNode *node) {

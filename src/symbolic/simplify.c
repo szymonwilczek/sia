@@ -76,6 +76,32 @@ static int is_call1_squared(const AstNode *n, const char *fname) {
          is_number(n->as.binop.right, 2) && is_call1(n->as.binop.left, fname);
 }
 
+static AstNode *make_call1(const char *fname, AstNode *arg) {
+  return ast_func_call(fname, strlen(fname), (AstNode *[]){arg}, 1);
+}
+
+static AstNode *make_squared_call1(const char *fname, AstNode *arg) {
+  return ast_binop(OP_POW, make_call1(fname, arg), ast_number(2));
+}
+
+static int same_unary_call_arg(const AstNode *left, const char *left_name,
+                               const AstNode *right, const char *right_name) {
+  return is_call1(left, left_name) && is_call1(right, right_name) &&
+         ast_equal(left->as.call.args[0], right->as.call.args[0]);
+}
+
+static AstNode *half_expr(AstNode *expr) {
+  return sym_simplify(ast_binop(OP_DIV, expr, ast_number(2)));
+}
+
+static AstNode *trig_sum_arg(const AstNode *a, const AstNode *b) {
+  return half_expr(ast_binop(OP_ADD, ast_clone(a), ast_clone(b)));
+}
+
+static AstNode *trig_diff_arg(const AstNode *a, const AstNode *b) {
+  return half_expr(ast_binop(OP_SUB, ast_clone(a), ast_clone(b)));
+}
+
 static int complex_imaginary_unit_sign(Complex z) {
   if (z.exact) {
     if (!fraction_is_zero(z.re_q) || !fraction_is_one(z.im_q))
@@ -173,6 +199,18 @@ static int fold_unary_numeric_call(const char *name, Complex arg,
   }
   if (strcmp(name, "tan") == 0) {
     *out = c_tan(arg);
+    return 1;
+  }
+  if (strcmp(name, "sec") == 0) {
+    *out = c_div(c_real(1.0), c_cos(arg));
+    return 1;
+  }
+  if (strcmp(name, "csc") == 0) {
+    *out = c_div(c_real(1.0), c_sin(arg));
+    return 1;
+  }
+  if (strcmp(name, "cot") == 0) {
+    *out = c_div(c_cos(arg), c_sin(arg));
     return 1;
   }
   if (strcmp(name, "sinh") == 0) {
@@ -519,6 +557,47 @@ static AstNode *normalize_mul_factors(const AstNode *node) {
 
   result = build_mul_chain(coeff, &nodes);
   node_list_free(&nodes);
+  power_factor_list_free(&factors);
+  return result;
+}
+
+static AstNode *try_double_angle_product(const AstNode *node) {
+  Complex coeff = c_real(1.0);
+  PowerFactorList factors = {0};
+  const AstNode *sin_arg = NULL;
+  const AstNode *cos_arg = NULL;
+  AstNode *result = NULL;
+
+  if (!flatten_mul_factors(node, &coeff, &factors)) {
+    power_factor_list_free(&factors);
+    return NULL;
+  }
+
+  if (!c_eq(coeff, c_real(2.0)) || factors.count != 2)
+    goto done;
+
+  for (size_t i = 0; i < factors.count; i++) {
+    if (!is_number(factors.items[i].exp, 1))
+      goto done;
+    if (is_call1(factors.items[i].base, "sin")) {
+      if (sin_arg)
+        goto done;
+      sin_arg = factors.items[i].base->as.call.args[0];
+    } else if (is_call1(factors.items[i].base, "cos")) {
+      if (cos_arg)
+        goto done;
+      cos_arg = factors.items[i].base->as.call.args[0];
+    } else {
+      goto done;
+    }
+  }
+
+  if (sin_arg && cos_arg && ast_equal(sin_arg, cos_arg)) {
+    AstNode *two_arg = ast_binop(OP_MUL, ast_number(2), ast_clone(sin_arg));
+    result = make_call1("sin", two_arg);
+  }
+
+done:
   power_factor_list_free(&factors);
   return result;
 }
@@ -965,6 +1044,36 @@ AstNode *sym_simplify(AstNode *node) {
       ast_free(node);
       return ast_binop(OP_MUL, ast_number(2), L);
     }
+    /* 1 + tan(u)^2 -> sec(u)^2 */
+    if (is_number(L, 1) && is_call1_squared(R, "tan")) {
+      AstNode *arg = ast_clone(R->as.binop.left->as.call.args[0]);
+      ast_free(node);
+      return make_squared_call1("sec", arg);
+    }
+    if (is_number(R, 1) && is_call1_squared(L, "tan")) {
+      AstNode *arg = ast_clone(L->as.binop.left->as.call.args[0]);
+      ast_free(node);
+      return make_squared_call1("sec", arg);
+    }
+    /* sin(a)+sin(b), cos(a)+cos(b) -> sum-to-product forms */
+    if (is_call1(L, "sin") && is_call1(R, "sin")) {
+      AstNode *a = L->as.call.args[0];
+      AstNode *b = R->as.call.args[0];
+      AstNode *sum = make_call1("sin", trig_sum_arg(a, b));
+      AstNode *diff = make_call1("cos", trig_diff_arg(a, b));
+      ast_free(node);
+      return sym_simplify(
+          ast_binop(OP_MUL, ast_number(2), ast_binop(OP_MUL, sum, diff)));
+    }
+    if (is_call1(L, "cos") && is_call1(R, "cos")) {
+      AstNode *a = L->as.call.args[0];
+      AstNode *b = R->as.call.args[0];
+      AstNode *sum = make_call1("cos", trig_sum_arg(a, b));
+      AstNode *diff = make_call1("cos", trig_diff_arg(a, b));
+      ast_free(node);
+      return sym_simplify(
+          ast_binop(OP_MUL, ast_number(2), ast_binop(OP_MUL, sum, diff)));
+    }
     /* c1*E + c2*E -> (c1+c2)*E */
     if (L->type == AST_BINOP && L->as.binop.op == OP_MUL &&
         is_num(L->as.binop.left) && R->type == AST_BINOP &&
@@ -1068,7 +1177,13 @@ AstNode *sym_simplify(AstNode *node) {
     }
     break;
 
-  case OP_MUL:
+  case OP_MUL: {
+    AstNode *double_angle = try_double_angle_product(node);
+    if (double_angle) {
+      ast_free(node);
+      return double_angle;
+    }
+  }
     if ((is_inf_node(L) && is_num(R)) || (is_inf_node(R) && is_num(L))) {
       AstNode *coeff = is_inf_node(L) ? R : L;
       int sign = infinity_sign(is_inf_node(L) ? L : R);
@@ -1325,14 +1440,12 @@ AstNode *sym_simplify(AstNode *node) {
       AstNode *args[] = {arg};
       return ast_func_call("tan", 3, args, 1);
     }
-    /* cos(u) / sin(u) -> 1/tan(u) */
+    /* cos(u) / sin(u) -> cot(u) */
     if (is_call1(L, "cos") && is_call1(R, "sin") &&
         ast_equal(L->as.call.args[0], R->as.call.args[0])) {
       AstNode *arg = ast_clone(L->as.call.args[0]);
       ast_free(node);
-      AstNode *args[] = {arg};
-      AstNode *t = ast_func_call("tan", 3, args, 1);
-      return ast_binop(OP_DIV, ast_number(1), t);
+      return make_call1("cot", arg);
     }
     /* sinh(u) / cosh(u) -> tanh(u) */
     if (is_call1(L, "sinh") && is_call1(R, "cosh") &&
@@ -2647,6 +2760,57 @@ AstNode *sym_expand(AstNode *node) {
         ast_free(L);
         ast_free(R);
         return res;
+      }
+    }
+
+    if (node->as.binop.op == OP_MUL) {
+      if (same_unary_call_arg(L, "sin", R, "cos")) {
+        AstNode *a = L->as.call.args[0];
+        AstNode *b = R->as.call.args[0];
+        AstNode *sum = make_call1(
+            "sin", sym_simplify(ast_binop(OP_ADD, ast_clone(a), ast_clone(b))));
+        AstNode *diff = make_call1(
+            "sin", sym_simplify(ast_binop(OP_SUB, ast_clone(a), ast_clone(b))));
+        ast_free(L);
+        ast_free(R);
+        return sym_simplify(
+            ast_binop(OP_DIV, ast_binop(OP_ADD, sum, diff), ast_number(2)));
+      }
+      if (same_unary_call_arg(L, "cos", R, "sin")) {
+        AstNode *a = R->as.call.args[0];
+        AstNode *b = L->as.call.args[0];
+        AstNode *sum = make_call1(
+            "sin", sym_simplify(ast_binop(OP_ADD, ast_clone(a), ast_clone(b))));
+        AstNode *diff = make_call1(
+            "sin", sym_simplify(ast_binop(OP_SUB, ast_clone(a), ast_clone(b))));
+        ast_free(L);
+        ast_free(R);
+        return sym_simplify(
+            ast_binop(OP_DIV, ast_binop(OP_ADD, sum, diff), ast_number(2)));
+      }
+      if (is_call1(L, "cos") && is_call1(R, "cos")) {
+        AstNode *a = L->as.call.args[0];
+        AstNode *b = R->as.call.args[0];
+        AstNode *diff = make_call1(
+            "cos", sym_simplify(ast_binop(OP_SUB, ast_clone(a), ast_clone(b))));
+        AstNode *sum = make_call1(
+            "cos", sym_simplify(ast_binop(OP_ADD, ast_clone(a), ast_clone(b))));
+        ast_free(L);
+        ast_free(R);
+        return sym_simplify(
+            ast_binop(OP_DIV, ast_binop(OP_ADD, diff, sum), ast_number(2)));
+      }
+      if (is_call1(L, "sin") && is_call1(R, "sin")) {
+        AstNode *a = L->as.call.args[0];
+        AstNode *b = R->as.call.args[0];
+        AstNode *diff = make_call1(
+            "cos", sym_simplify(ast_binop(OP_SUB, ast_clone(a), ast_clone(b))));
+        AstNode *sum = make_call1(
+            "cos", sym_simplify(ast_binop(OP_ADD, ast_clone(a), ast_clone(b))));
+        ast_free(L);
+        ast_free(R);
+        return sym_simplify(
+            ast_binop(OP_DIV, ast_binop(OP_SUB, diff, sum), ast_number(2)));
       }
     }
 

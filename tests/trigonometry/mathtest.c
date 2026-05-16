@@ -514,6 +514,70 @@ static void test_trig_pythagorean_complex_arg(void) {
   PASS();
 }
 
+static void test_reciprocal_trig_and_identities(void) {
+  TEST("trig: reciprocal trig functions and tan identity");
+
+  ParseResult r1 = parse("cos(x)/sin(x)");
+  AstNode *s1 = sym_simplify(ast_clone(r1.root));
+  char *str1 = ast_to_string(s1);
+  ASSERT_STR_EQ(str1, "cot(x)");
+  free(str1);
+  ast_free(s1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("1 + tan(x)^2");
+  AstNode *s2 = sym_simplify(ast_clone(r2.root));
+  char *str2 = ast_to_string(s2);
+  ASSERT_STR_EQ(str2, "sec(x)^2");
+  free(str2);
+  ast_free(s2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("2*sin(x)*cos(x)");
+  AstNode *s3 = sym_simplify(ast_clone(r3.root));
+  char *str3 = ast_to_string(s3);
+  ASSERT_STR_EQ(str3, "sin(2*x)");
+  free(str3);
+  ast_free(s3);
+  parse_result_free(&r3);
+
+  PASS();
+}
+
+static void test_diff_reciprocal_trig(void) {
+  TEST("diff: d/dx(sec/csc/cot)");
+
+  ParseResult r1 = parse("sec(x)");
+  AstNode *d1 = sym_diff(r1.root, "x");
+  char *s1 = ast_to_string(d1);
+  ASSERT_STR_EQ(s1, "sec(x)*tan(x)");
+  free(s1);
+  ast_free(d1);
+  parse_result_free(&r1);
+
+  ParseResult r2 = parse("cot(x)");
+  AstNode *d2 = sym_diff(r2.root, "x");
+  char *s2 = ast_to_string(d2);
+  ASSERT_STR_EQ(s2, "(-csc(x)^2)");
+  free(s2);
+  ast_free(d2);
+  parse_result_free(&r2);
+
+  PASS();
+}
+
+static void test_expand_product_to_sum(void) {
+  TEST("expand: sin(x)*cos(x) -> sin(2*x)/2");
+  ParseResult r = parse("sin(x)*cos(x)");
+  AstNode *e = sym_expand(r.root);
+  char *s = ast_to_string(e);
+  ASSERT_STR_EQ(s, "sin(2*x)/2");
+  free(s);
+  ast_free(e);
+  parse_result_free(&r);
+  PASS();
+}
+
 void tests_trigonometry_mathtest(void) {
   test_simplify_trig_tan();
   test_simplify_trig_pythagorean();
@@ -536,4 +600,7 @@ void tests_trigonometry_mathtest(void) {
   test_diff_sincos_to_cos2x();
   test_trig_scattered_with_constant();
   test_trig_pythagorean_complex_arg();
+  test_reciprocal_trig_and_identities();
+  test_diff_reciprocal_trig();
+  test_expand_product_to_sum();
 }

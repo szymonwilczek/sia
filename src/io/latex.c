@@ -325,6 +325,15 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
       case TRIG_KIND_TAN:
         latex_name = "tan";
         break;
+      case TRIG_KIND_SEC:
+        latex_name = "sec";
+        break;
+      case TRIG_KIND_CSC:
+        latex_name = "csc";
+        break;
+      case TRIG_KIND_COT:
+        latex_name = "cot";
+        break;
       case TRIG_KIND_ASIN:
         latex_name = "asin";
         break;

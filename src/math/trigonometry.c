@@ -14,6 +14,12 @@ Complex c_cos(Complex z) {
 
 Complex c_tan(Complex z) { return c_div(c_sin(z), c_cos(z)); }
 
+static Complex c_sec(Complex z) { return c_div(c_real(1.0), c_cos(z)); }
+
+static Complex c_csc(Complex z) { return c_div(c_real(1.0), c_sin(z)); }
+
+static Complex c_cot(Complex z) { return c_div(c_cos(z), c_sin(z)); }
+
 Complex c_asin(Complex z) {
   /* asin(z) = -i * ln(iz + sqrt(1 - z^2)) */
   Complex i_ = c_make(0, 1);
@@ -49,6 +55,12 @@ TrigKind trig_kind(const AstNode *node) {
     return TRIG_KIND_COS;
   if (strcmp(name, "tan") == 0)
     return TRIG_KIND_TAN;
+  if (strcmp(name, "sec") == 0)
+    return TRIG_KIND_SEC;
+  if (strcmp(name, "csc") == 0)
+    return TRIG_KIND_CSC;
+  if (strcmp(name, "cot") == 0)
+    return TRIG_KIND_COT;
   if (strcmp(name, "asin") == 0)
     return TRIG_KIND_ASIN;
   if (strcmp(name, "acos") == 0)
@@ -77,6 +89,12 @@ Complex trig_eval_value(TrigKind kind, Complex value, int *ok, char **error) {
     return c_cos(value);
   case TRIG_KIND_TAN:
     return c_tan(value);
+  case TRIG_KIND_SEC:
+    return c_sec(value);
+  case TRIG_KIND_CSC:
+    return c_csc(value);
+  case TRIG_KIND_COT:
+    return c_cot(value);
   case TRIG_KIND_ASIN:
     return c_asin(value);
   case TRIG_KIND_ACOS:
@@ -251,7 +269,8 @@ AstNode *trig_simplify_call(AstNode *node) {
     return sym_simplify(ast_unary_neg(node));
   }
 
-  if ((kind == TRIG_KIND_SINH || kind == TRIG_KIND_TANH) &&
+  if ((kind == TRIG_KIND_SINH || kind == TRIG_KIND_TANH ||
+       kind == TRIG_KIND_CSC || kind == TRIG_KIND_COT) &&
       arg->type == AST_UNARY_NEG) {
     AstNode *operand = arg->as.unary.operand;
     arg->as.unary.operand = NULL;
@@ -260,7 +279,8 @@ AstNode *trig_simplify_call(AstNode *node) {
     return sym_simplify(ast_unary_neg(node));
   }
 
-  if (kind == TRIG_KIND_COSH && arg->type == AST_UNARY_NEG) {
+  if ((kind == TRIG_KIND_COSH || kind == TRIG_KIND_SEC) &&
+      arg->type == AST_UNARY_NEG) {
     AstNode *operand = arg->as.unary.operand;
     arg->as.unary.operand = NULL;
     ast_free(arg);
@@ -334,6 +354,21 @@ AstNode *trig_diff_call(const AstNode *node, const char *var) {
         ast_binop(OP_POW,
                   ast_func_call("cos", 3, (AstNode *[]){ast_clone(inner)}, 1),
                   ast_number(2)));
+    break;
+  case TRIG_KIND_SEC:
+    outer_d = ast_binop(
+        OP_MUL, ast_func_call("sec", 3, (AstNode *[]){ast_clone(inner)}, 1),
+        ast_func_call("tan", 3, (AstNode *[]){ast_clone(inner)}, 1));
+    break;
+  case TRIG_KIND_CSC:
+    outer_d = ast_unary_neg(ast_binop(
+        OP_MUL, ast_func_call("csc", 3, (AstNode *[]){ast_clone(inner)}, 1),
+        ast_func_call("cot", 3, (AstNode *[]){ast_clone(inner)}, 1)));
+    break;
+  case TRIG_KIND_COT:
+    outer_d = ast_unary_neg(ast_binop(
+        OP_POW, ast_func_call("csc", 3, (AstNode *[]){ast_clone(inner)}, 1),
+        ast_number(2)));
     break;
   case TRIG_KIND_ASIN:
     outer_d = ast_binop(
