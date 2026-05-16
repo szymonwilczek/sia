@@ -250,6 +250,10 @@ EvalResult eval(const AstNode *node, const SymTab *st) {
     return fail("cannot evaluate matrix as scalar");
   case AST_EQ:
     return fail("cannot evaluate equation as scalar");
+  case AST_INFINITY:
+    return ok(c_real(node->as.infinity.sign < 0 ? -INFINITY : INFINITY));
+  case AST_UNDEFINED:
+    return fail("undefined value");
   }
 
   return fail("unknown node type");

@@ -77,6 +77,10 @@ static int contains_inf(const AstNode *node) {
   }
   case AST_EQ:
     return contains_inf(node->as.eq.lhs) || contains_inf(node->as.eq.rhs);
+  case AST_INFINITY:
+    return 1;
+  case AST_UNDEFINED:
+    return 0;
   }
   return 0;
 }

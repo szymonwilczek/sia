@@ -456,6 +456,12 @@ static void latex_node(const AstNode *node, StrBuf *sb, const AstNode *parent,
     sb_puts(sb, " = ");
     latex_node(node->as.eq.rhs, sb, NULL, 0);
     break;
+  case AST_INFINITY:
+    sb_puts(sb, node->as.infinity.sign < 0 ? "-\\infty" : "\\infty");
+    break;
+  case AST_UNDEFINED:
+    sb_puts(sb, "\\text{undefined}");
+    break;
   }
 }
 

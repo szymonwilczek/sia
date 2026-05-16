@@ -21,8 +21,12 @@ static int node_sort_key(const AstNode *n) {
     return 6;
   case AST_EQ:
     return 7;
+  case AST_INFINITY:
+    return 8;
+  case AST_UNDEFINED:
+    return 9;
   }
-  return 7;
+  return 9;
 }
 
 static int node_compare(const AstNode *a, const AstNode *b) {
@@ -82,6 +86,10 @@ static int node_compare(const AstNode *a, const AstNode *b) {
       return c;
     return node_compare(a->as.eq.rhs, b->as.eq.rhs);
   }
+  case AST_INFINITY:
+    return a->as.infinity.sign - b->as.infinity.sign;
+  case AST_UNDEFINED:
+    return 0;
   case AST_MATRIX: {
     size_t n = (a->as.matrix.rows < b->as.matrix.rows)   ? -1
                : (a->as.matrix.rows > b->as.matrix.rows) ? 1
@@ -124,6 +132,8 @@ AstNode *ast_canonicalize(AstNode *node) {
   switch (node->type) {
   case AST_NUMBER:
   case AST_VARIABLE:
+  case AST_INFINITY:
+  case AST_UNDEFINED:
     return node;
 
   case AST_MATRIX: {

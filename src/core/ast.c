@@ -110,6 +110,19 @@ AstNode *ast_eq(AstNode *lhs, AstNode *rhs) {
   return n;
 }
 
+AstNode *ast_infinity(int sign) {
+  AstNode *n = xmalloc(sizeof *n);
+  n->type = AST_INFINITY;
+  n->as.infinity.sign = sign >= 0 ? 1 : -1;
+  return n;
+}
+
+AstNode *ast_undefined(void) {
+  AstNode *n = xmalloc(sizeof *n);
+  n->type = AST_UNDEFINED;
+  return n;
+}
+
 AstNode *ast_clone(const AstNode *node) {
   if (!node)
     return NULL;
@@ -154,6 +167,10 @@ AstNode *ast_clone(const AstNode *node) {
   }
   case AST_EQ:
     return ast_eq(ast_clone(node->as.eq.lhs), ast_clone(node->as.eq.rhs));
+  case AST_INFINITY:
+    return ast_infinity(node->as.infinity.sign);
+  case AST_UNDEFINED:
+    return ast_undefined();
   }
   return NULL;
 }
@@ -196,6 +213,9 @@ void ast_free(AstNode *node) {
   case AST_EQ:
     ast_free(node->as.eq.lhs);
     ast_free(node->as.eq.rhs);
+    break;
+  case AST_INFINITY:
+  case AST_UNDEFINED:
     break;
   }
   free(node);
@@ -420,6 +440,15 @@ static void ast_serialize(const AstNode *node, StrBuf *sb,
     ast_serialize(node->as.eq.lhs, sb, NULL, 0);
     sb_append(sb, " = ", 3);
     ast_serialize(node->as.eq.rhs, sb, NULL, 0);
+    break;
+  case AST_INFINITY:
+    if (node->as.infinity.sign < 0)
+      sb_append(sb, "-inf", 4);
+    else
+      sb_append(sb, "inf", 3);
+    break;
+  case AST_UNDEFINED:
+    sb_append(sb, "undefined", 9);
     break;
   case AST_MATRIX: {
     sb_append(sb, "[", 1);

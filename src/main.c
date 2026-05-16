@@ -252,6 +252,10 @@ static AstNode *substitute_params(const AstNode *node, char **params,
   case AST_EQ:
     return ast_eq(substitute_params(node->as.eq.lhs, params, args, n),
                   substitute_params(node->as.eq.rhs, params, args, n));
+  case AST_INFINITY:
+    return ast_infinity(node->as.infinity.sign);
+  case AST_UNDEFINED:
+    return ast_undefined();
   }
   return NULL;
 }
@@ -323,6 +327,10 @@ static AstNode *substitute_vars(AstNode *node, const SymTab *st) {
   case AST_EQ:
     node->as.eq.lhs = substitute_vars(node->as.eq.lhs, st);
     node->as.eq.rhs = substitute_vars(node->as.eq.rhs, st);
+    return node;
+
+  case AST_INFINITY:
+  case AST_UNDEFINED:
     return node;
   }
   return node;

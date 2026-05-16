@@ -76,6 +76,10 @@ static inline int ast_equal(const AstNode *a, const AstNode *b) {
   case AST_EQ:
     return ast_equal(a->as.eq.lhs, b->as.eq.lhs) &&
            ast_equal(a->as.eq.rhs, b->as.eq.rhs);
+  case AST_INFINITY:
+    return a->as.infinity.sign == b->as.infinity.sign;
+  case AST_UNDEFINED:
+    return 1;
   }
   return 0;
 }

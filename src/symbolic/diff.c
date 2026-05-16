@@ -217,6 +217,9 @@ AstNode *sym_diff(const AstNode *expr, const char *var) {
     }
     return ast_eq(l, r);
   }
+  case AST_INFINITY:
+  case AST_UNDEFINED:
+    return ast_number(0);
   }
 
   return NULL;

@@ -503,6 +503,8 @@ AstNode *sym_simplify(AstNode *node) {
   switch (node->type) {
   case AST_NUMBER:
   case AST_VARIABLE:
+  case AST_INFINITY:
+  case AST_UNDEFINED:
     return node;
 
   case AST_MATRIX: {
@@ -1614,6 +1616,8 @@ static AstNode *simplify_subexpressions(AstNode *node) {
   switch (node->type) {
   case AST_NUMBER:
   case AST_VARIABLE:
+  case AST_INFINITY:
+  case AST_UNDEFINED:
     return node;
   case AST_MATRIX: {
     size_t total = node->as.matrix.rows * node->as.matrix.cols;
@@ -2172,6 +2176,8 @@ AstNode *sym_expand(AstNode *node) {
   switch (node->type) {
   case AST_NUMBER:
   case AST_VARIABLE:
+  case AST_INFINITY:
+  case AST_UNDEFINED:
     return ast_clone(node);
   case AST_MATRIX: {
     size_t total = node->as.matrix.rows * node->as.matrix.cols;

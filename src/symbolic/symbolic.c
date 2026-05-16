@@ -38,6 +38,9 @@ int sym_contains_var(const AstNode *n, const char *var) {
   case AST_EQ:
     return sym_contains_var(n->as.eq.lhs, var) ||
            sym_contains_var(n->as.eq.rhs, var);
+  case AST_INFINITY:
+  case AST_UNDEFINED:
+    return 0;
   }
   return 0;
 }
@@ -124,6 +127,9 @@ AstNode *sym_subs(const AstNode *expr, const char *var, const AstNode *val) {
     }
     return ast_eq(l, r);
   }
+  case AST_INFINITY:
+  case AST_UNDEFINED:
+    return ast_clone(expr);
   }
 
   return NULL;
