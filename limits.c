@@ -232,6 +232,11 @@ static LimitStatus direct_fraction_substitution(const AstNode *expr,
     return LIMIT_DIRECT_OK;
   }
 
+  if (num_class == LIMIT_CLASS_FINITE && den_class == LIMIT_CLASS_INF) {
+    *out = ast_number(0);
+    return LIMIT_DIRECT_OK;
+  }
+
   return LIMIT_UNSUPPORTED;
 }
 
