@@ -178,13 +178,35 @@ static void test_simplify_cancel_div(void) {
 }
 
 static void test_simplify_exp_ln(void) {
-  TEST("simplify: exp(ln(x)) -> x");
+  TEST("simplify: exp/ln exact symbolic constants");
   ParseResult r = parse("exp(ln(x))");
   AstNode *s = sym_simplify(ast_clone(r.root));
   ASSERT_EQ(s->type, AST_VARIABLE);
   ASSERT_STR_EQ(s->as.variable, "x");
   ast_free(s);
   parse_result_free(&r);
+
+  ParseResult r2 = parse("exp(1)");
+  AstNode *s2 = sym_simplify(ast_clone(r2.root));
+  ASSERT_EQ(s2->type, AST_VARIABLE);
+  ASSERT_STR_EQ(s2->as.variable, "e");
+  ast_free(s2);
+  parse_result_free(&r2);
+
+  ParseResult r3 = parse("exp(2)");
+  AstNode *s3 = sym_simplify(ast_clone(r3.root));
+  char *str3 = ast_to_string(s3);
+  ASSERT_STR_EQ(str3, "e^2");
+  free(str3);
+  ast_free(s3);
+  parse_result_free(&r3);
+
+  ParseResult r4 = parse("ln(e)");
+  AstNode *s4 = sym_simplify(ast_clone(r4.root));
+  ASSERT_TRUE(is_num_node(s4, 1));
+  ast_free(s4);
+  parse_result_free(&r4);
+
   PASS();
 }
 

@@ -608,6 +608,10 @@ AstNode *sym_simplify(AstNode *node) {
       return trig_simplify_call(node);
     if (number_theory_kind(node) != NT_KIND_NONE)
       return number_theory_simplify_call(node);
+    if (is_call1(node, "ln") && is_var(node->as.call.args[0], "e")) {
+      ast_free(node);
+      return ast_number(1);
+    }
     if (log_kind(node) != LOG_KIND_NONE)
       return log_simplify_call(node);
     if (node->as.call.nargs == 1) {
@@ -642,6 +646,24 @@ AstNode *sym_simplify(AstNode *node) {
     }
     if (node->as.call.nargs == 1 && is_num(node->as.call.args[0])) {
       Complex folded;
+      if (strcmp(node->as.call.name, "exp") == 0 &&
+          c_is_real(node->as.call.args[0]->as.number)) {
+        AstNode *exponent = ast_clone(node->as.call.args[0]);
+        AstNode *e = ast_variable("e", 1);
+        if (is_number(exponent, 0)) {
+          ast_free(exponent);
+          ast_free(e);
+          ast_free(node);
+          return ast_number(1);
+        }
+        if (is_number(exponent, 1)) {
+          ast_free(exponent);
+          ast_free(node);
+          return e;
+        }
+        ast_free(node);
+        return ast_binop(OP_POW, e, exponent);
+      }
       if (fold_unary_numeric_call(node->as.call.name,
                                   node->as.call.args[0]->as.number, &folded)) {
         ast_free(node);

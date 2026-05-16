@@ -718,6 +718,41 @@ static SolveResult sym_solve_core(const AstNode *expr, const char *var,
     }
   }
 
+  /* exp(f(x)) = c  =>  f(x) = ln(c). keep the direct exp(x)=c form symbolic so
+   * the REPL reports x = ln(c) instead of a Newton decimal. */
+  {
+    const AstNode *exp_node = NULL;
+    const AstNode *other = NULL;
+    if (simplified->type == AST_BINOP && simplified->as.binop.op == OP_SUB) {
+      const AstNode *lhs = simplified->as.binop.left;
+      const AstNode *rhs = simplified->as.binop.right;
+      if (is_call1(lhs, "exp") && !sym_contains_var(rhs, var)) {
+        exp_node = lhs;
+        other = rhs;
+      } else if (is_call1(rhs, "exp") && !sym_contains_var(lhs, var)) {
+        exp_node = rhs;
+        other = lhs;
+      }
+    }
+
+    if (exp_node && other) {
+      AstNode *ln_other =
+          ast_func_call("ln", 2, (AstNode *[]){ast_clone(other)}, 1);
+      AstNode *value = ast_clone(exp_node->as.call.args[0]);
+      if (is_var(value, var)) {
+        ast_free(value);
+        ast_free(simplified);
+        return ok_symbolic_single(ln_other);
+      }
+
+      AstNode *new_expr = ast_binop(OP_SUB, value, ln_other);
+      ast_free(simplified);
+      SolveResult sub = sym_solve_core(new_expr, var, x0, st);
+      ast_free(new_expr);
+      return sub;
+    }
+  }
+
   /* cross-multiplication leaves nested SUBs that extract_poly_coeffs cannot
    * flatten through its OP_ADD-only walker. Run the full expand pipeline once
    * so terms become a flat polynomial. */

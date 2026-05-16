@@ -156,6 +156,73 @@ static void output_str(const char *s, int batch_mode) {
   }
 }
 
+static int is_symbolic_constant_name(const char *name) {
+  return strcmp(name, "e") == 0 || strcmp(name, "pi") == 0;
+}
+
+static int is_special_function_name(const char *name) {
+  return strcmp(name, "exp") == 0 || strcmp(name, "ln") == 0 ||
+         strcmp(name, "log") == 0 || strcmp(name, "sin") == 0 ||
+         strcmp(name, "cos") == 0 || strcmp(name, "tan") == 0 ||
+         strcmp(name, "asin") == 0 || strcmp(name, "acos") == 0 ||
+         strcmp(name, "atan") == 0 || strcmp(name, "sinh") == 0 ||
+         strcmp(name, "cosh") == 0 || strcmp(name, "tanh") == 0 ||
+         strcmp(name, "sqrt") == 0;
+}
+
+static int contains_exact_symbolic_form(const AstNode *node) {
+  if (!node)
+    return 0;
+
+  switch (node->type) {
+  case AST_VARIABLE:
+    return is_symbolic_constant_name(node->as.variable);
+  case AST_UNARY_NEG:
+    return contains_exact_symbolic_form(node->as.unary.operand);
+  case AST_BINOP:
+    return contains_exact_symbolic_form(node->as.binop.left) ||
+           contains_exact_symbolic_form(node->as.binop.right);
+  case AST_FUNC_CALL:
+    if (is_special_function_name(node->as.call.name))
+      return 1;
+    for (size_t i = 0; i < node->as.call.nargs; i++)
+      if (contains_exact_symbolic_form(node->as.call.args[i]))
+        return 1;
+    return 0;
+  case AST_LIMIT:
+    return contains_exact_symbolic_form(node->as.limit.expr) ||
+           contains_exact_symbolic_form(node->as.limit.target);
+  case AST_MATRIX: {
+    size_t total = node->as.matrix.rows * node->as.matrix.cols;
+    for (size_t i = 0; i < total; i++)
+      if (contains_exact_symbolic_form(node->as.matrix.elements[i]))
+        return 1;
+    return 0;
+  }
+  case AST_EQ:
+    return contains_exact_symbolic_form(node->as.eq.lhs) ||
+           contains_exact_symbolic_form(node->as.eq.rhs);
+  case AST_NUMBER:
+  case AST_INFINITY:
+  case AST_UNDEFINED:
+    return 0;
+  }
+
+  return 0;
+}
+
+static int is_inexact_number_node(const AstNode *node) {
+  return node && node->type == AST_NUMBER && !node->as.number.exact;
+}
+
+static int should_preserve_symbolic_output(const AstNode *source,
+                                           const AstNode *simplified) {
+  if (contains_exact_symbolic_form(simplified))
+    return 1;
+  return is_inexact_number_node(simplified) &&
+         contains_exact_symbolic_form(source);
+}
+
 static int parse_nonnegative_int_arg(const AstNode *node, const SymTab *st,
                                      int *out) {
   EvalResult er;
@@ -1135,6 +1202,22 @@ static int process_input(const char *input, int batch_mode) {
     ast_free(resolved);
     parse_result_free(&pr);
     return 0;
+  }
+
+  {
+    AstNode *symbolic = sym_full_simplify(ast_clone(resolved));
+    if (should_preserve_symbolic_output(resolved, symbolic)) {
+      const AstNode *out_node =
+          is_inexact_number_node(symbolic) ? resolved : symbolic;
+      char *s = ast_to_string(out_node);
+      output_result(out_node, s, batch_mode);
+      free(s);
+      ast_free(symbolic);
+      ast_free(resolved);
+      parse_result_free(&pr);
+      return 0;
+    }
+    ast_free(symbolic);
   }
 
   /* numeric evaluation */
