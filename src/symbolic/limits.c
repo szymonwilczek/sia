@@ -37,6 +37,49 @@ static int is_nan_number(const AstNode *node) {
          (isnan(node->as.number.re) || isnan(node->as.number.im));
 }
 
+static int contains_undefined(const AstNode *node) {
+  if (!node)
+    return 0;
+
+  switch (node->type) {
+  case AST_UNDEFINED:
+    return 1;
+  case AST_BINOP:
+    return contains_undefined(node->as.binop.left) ||
+           contains_undefined(node->as.binop.right);
+  case AST_UNARY_NEG:
+    return contains_undefined(node->as.unary.operand);
+  case AST_FUNC_CALL:
+    for (size_t i = 0; i < node->as.call.nargs; i++)
+      if (contains_undefined(node->as.call.args[i]))
+        return 1;
+    return 0;
+  case AST_LIMIT:
+    return contains_undefined(node->as.limit.expr) ||
+           contains_undefined(node->as.limit.target);
+  case AST_MATRIX: {
+    size_t total = node->as.matrix.rows * node->as.matrix.cols;
+    for (size_t i = 0; i < total; i++)
+      if (contains_undefined(node->as.matrix.elements[i]))
+        return 1;
+    return 0;
+  }
+  case AST_EQ:
+    return contains_undefined(node->as.eq.lhs) ||
+           contains_undefined(node->as.eq.rhs);
+  case AST_NUMBER:
+  case AST_VARIABLE:
+  case AST_INFINITY:
+    return 0;
+  }
+  return 0;
+}
+
+static int is_one_number(const AstNode *node) {
+  return node && node->type == AST_NUMBER && c_is_real(node->as.number) &&
+         fabs(node->as.number.re - 1.0) < 1e-12;
+}
+
 static int is_positive_inf_node(const AstNode *node) {
   return node && ((node->type == AST_INFINITY && node->as.infinity.sign > 0) ||
                   (node->type == AST_VARIABLE &&
@@ -674,6 +717,96 @@ static AstNode *limit_constant_base_power(const AstNode *expr, const char *var,
   return sym_full_simplify(powered);
 }
 
+static AstNode *exp_of_limit(AstNode *exponent_limit) {
+  if (!exponent_limit)
+    return NULL;
+
+  if (contains_undefined(exponent_limit))
+    return exponent_limit;
+
+  if (is_inf_node(exponent_limit)) {
+    int sign = inf_sign(exponent_limit);
+    ast_free(exponent_limit);
+    return sign < 0 ? ast_number(0) : ast_infinity(1);
+  }
+
+  if (is_zero_number(exponent_limit)) {
+    ast_free(exponent_limit);
+    return ast_number(1);
+  }
+
+  if (is_one_number(exponent_limit)) {
+    ast_free(exponent_limit);
+    return ast_variable("e", 1);
+  }
+
+  AstNode *base = ast_variable("e", 1);
+  return ast_binop(OP_POW, base, exponent_limit);
+}
+
+static AstNode *limit_exp_log_power(const AstNode *base,
+                                    const AstNode *exponent, const char *var,
+                                    const AstNode *target, int direction) {
+  AstNode *log_arg = ast_clone(base);
+  AstNode *log_base = ast_func_call("ln", 2, (AstNode *[]){log_arg}, 1);
+  AstNode *product = ast_binop(OP_MUL, ast_clone(exponent), log_base);
+  AstNode *normalized = sym_full_simplify(product);
+  AstNode *limit =
+      limit_inner(normalized ? normalized : product, var, target, direction, 0);
+
+  if (normalized)
+    ast_free(normalized);
+  else
+    ast_free(product);
+
+  if (limit && !contains_undefined(limit))
+    return exp_of_limit(limit);
+
+  ast_free(limit);
+  return NULL;
+}
+
+static AstNode *limit_log_linearized_power(const AstNode *base,
+                                           const AstNode *exponent,
+                                           const char *var,
+                                           const AstNode *target,
+                                           int direction) {
+  AstNode *delta =
+      sym_full_simplify(ast_binop(OP_SUB, ast_clone(base), ast_number(1)));
+  AstNode *product =
+      sym_full_simplify(ast_binop(OP_MUL, ast_clone(exponent), delta));
+  AstNode *limit = limit_inner(product, var, target, direction, 0);
+  ast_free(product);
+  return exp_of_limit(limit);
+}
+
+static AstNode *limit_indeterminate_power(const AstNode *expr, const char *var,
+                                          const AstNode *target,
+                                          int direction) {
+  if (!expr || expr->type != AST_BINOP || expr->as.binop.op != OP_POW)
+    return NULL;
+
+  const AstNode *base = expr->as.binop.left;
+  const AstNode *exponent = expr->as.binop.right;
+  if (!sym_contains_var(base, var) || !sym_contains_var(exponent, var))
+    return NULL;
+
+  AstNode *base_limit = limit_inner(base, var, target, direction, 0);
+  AstNode *exponent_limit = limit_inner(exponent, var, target, direction, 0);
+  int is_one_to_infinity =
+      is_one_number(base_limit) && is_inf_node(exponent_limit);
+  ast_free(base_limit);
+  ast_free(exponent_limit);
+  if (!is_one_to_infinity)
+    return NULL;
+
+  AstNode *result = limit_exp_log_power(base, exponent, var, target, direction);
+  if (result)
+    return result;
+
+  return limit_log_linearized_power(base, exponent, var, target, direction);
+}
+
 static LimitStatus direct_substitution(const AstNode *expr, const char *var,
                                        const AstNode *target, int direction,
                                        AstNode **out) {
@@ -684,6 +817,12 @@ static LimitStatus direct_substitution(const AstNode *expr, const char *var,
 
   AstNode *power_limit =
       limit_constant_base_power(expr, var, target, direction);
+  if (power_limit) {
+    *out = power_limit;
+    return LIMIT_DIRECT_OK;
+  }
+
+  power_limit = limit_indeterminate_power(expr, var, target, direction);
   if (power_limit) {
     *out = power_limit;
     return LIMIT_DIRECT_OK;

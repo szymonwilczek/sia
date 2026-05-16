@@ -158,6 +158,14 @@ static void test_exponential_limit_through_exponent(void) {
   PASS();
 }
 
+static void test_indeterminate_exponential_limit(void) {
+  TEST("calculus: indeterminate 1^inf exponential limit");
+  ASSERT_TRUE(simplifies_to("lim((1+1/x)^x, x, inf)", "e"));
+  ASSERT_TRUE(simplifies_to("lim((1+1/x)^(2*x), x, inf)", "e^2"));
+  ASSERT_TRUE(simplifies_to("lim((1-1/x)^x, x, inf)", "e^-1"));
+  PASS();
+}
+
 void tests_calculus_mathtest(void) {
   test_symbolic_derivative_matches_finite_difference();
   test_integral_derivative_roundtrip_polynomial();
@@ -172,4 +180,5 @@ void tests_calculus_mathtest(void) {
   test_directional_numeric_limit_snaps_integer();
   test_polynomial_limit_at_infinity();
   test_exponential_limit_through_exponent();
+  test_indeterminate_exponential_limit();
 }
