@@ -402,6 +402,40 @@ static AstNode *directed_abs_denominator_limit(const AstNode *num,
   return result;
 }
 
+static AstNode *directed_abs_numerator_limit(const AstNode *num,
+                                             const AstNode *den,
+                                             const char *var,
+                                             const AstNode *target,
+                                             int direction) {
+  if (direction == 0 || !num || num->type != AST_FUNC_CALL ||
+      strcmp(num->as.call.name, "abs") != 0 || num->as.call.nargs != 1)
+    return NULL;
+
+  AstNode *arg = num->as.call.args[0];
+  int sign = sign_near(arg, var, target, direction);
+  if (sign == 0)
+    return NULL;
+
+  AstNode *signed_num =
+      sign > 0 ? ast_clone(arg) : ast_unary_neg(ast_clone(arg));
+  AstNode *quotient = ast_binop(OP_DIV, signed_num, ast_clone(den));
+  AstNode *simplified = sym_full_simplify(quotient);
+  AstNode *sub = simplified ? sym_subs(simplified, var, target) : NULL;
+  AstNode *result = sub ? sym_full_simplify(sub) : NULL;
+
+  ast_free(simplified);
+  if (!result)
+    return NULL;
+
+  if (classify_node(result) == LIMIT_CLASS_OTHER ||
+      has_zero_denominator(result)) {
+    ast_free(result);
+    return NULL;
+  }
+
+  return result;
+}
+
 static int is_inf_reciprocal_form(const AstNode *node) {
   return node && node->type == AST_BINOP && node->as.binop.op == OP_POW &&
          is_inf_node(node->as.binop.left) &&
@@ -546,6 +580,14 @@ static LimitStatus direct_fraction_substitution(const AstNode *expr,
       (num_class == LIMIT_CLASS_INF && den_class == LIMIT_CLASS_INF)) {
     AstNode *abs_result =
         directed_abs_denominator_limit(num, den, var, target, direction);
+    if (abs_result) {
+      ast_free(num);
+      ast_free(den);
+      *out = abs_result;
+      return LIMIT_DIRECT_OK;
+    }
+
+    abs_result = directed_abs_numerator_limit(num, den, var, target, direction);
     if (abs_result) {
       ast_free(num);
       ast_free(den);

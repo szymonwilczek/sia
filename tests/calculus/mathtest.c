@@ -132,6 +132,13 @@ static void test_directional_abs_denominator_limit(void) {
   PASS();
 }
 
+static void test_directional_abs_numerator_limit(void) {
+  TEST("calculus: directional limit through abs numerator");
+  ASSERT_TRUE(simplifies_to("lim(abs(x^2 - 4) / (x - 2), x, 2-)", "-4"));
+  ASSERT_TRUE(simplifies_to("lim(abs(x^2 - 4) / (x - 2), x, 2+)", "4"));
+  PASS();
+}
+
 static void test_directional_numeric_limit_snaps_integer(void) {
   TEST("calculus: directional numeric limit snaps near integer");
   ASSERT_TRUE(simplifies_to("lim(abs(sin(x))/x, x, 0-)", "-1"));
@@ -153,6 +160,7 @@ void tests_calculus_mathtest(void) {
   test_signed_infinity_arithmetic();
   test_infinite_power_simplification();
   test_directional_abs_denominator_limit();
+  test_directional_abs_numerator_limit();
   test_rational_polynomial_limit_at_negative_infinity();
   test_directional_numeric_limit_snaps_integer();
   test_polynomial_limit_at_infinity();
