@@ -33,6 +33,34 @@ static int expect(Parser *p, TokenType type) {
 
 static AstNode *parse_expr(Parser *p);
 static AstNode *parse_primary(Parser *p);
+static AstNode *parse_factor(Parser *p);
+
+/* an additive expression that may end in a single trailing '+' or '-' acting as
+ * a one-sided direction marker rather than the start of another term */
+static AstNode *parse_limit_target(Parser *p, int *direction) {
+  *direction = 0;
+  AstNode *left = parse_factor(p);
+  if (!left)
+    return NULL;
+
+  while (match(p, TOK_PLUS) || match(p, TOK_MINUS)) {
+    int is_plus = match(p, TOK_PLUS);
+    advance(p);
+    /* operator is immediately followed by ')' or ',', it's a
+     * one-sided direction marker - attach it to the target and stop */
+    if (match(p, TOK_RPAREN) || match(p, TOK_COMMA)) {
+      *direction = is_plus ? 1 : -1;
+      return left;
+    }
+    AstNode *right = parse_factor(p);
+    if (!right) {
+      ast_free(left);
+      return NULL;
+    }
+    left = ast_binop(is_plus ? OP_ADD : OP_SUB, left, right);
+  }
+  return left;
+}
 
 static AstNode *parse_postfix(Parser *p) {
   AstNode *node = parse_primary(p);
@@ -61,6 +89,10 @@ static AstNode *parse_unary(Parser *p) {
       return NULL;
     if (operand->type == AST_NUMBER) {
       operand->as.number = c_neg(operand->as.number);
+      return operand;
+    }
+    if (operand->type == AST_INFINITY) {
+      operand->as.infinity.sign = -operand->as.infinity.sign;
       return operand;
     }
     return ast_unary_neg(operand);
@@ -183,6 +215,55 @@ static AstNode *parse_primary(Parser *p) {
       return ast_complex(0.0, 1.0);
     }
 
+    int is_lim_call =
+        match(p, TOK_LPAREN) && ((len == 3 && strncmp(name, "lim", 3) == 0) ||
+                                 (len == 5 && strncmp(name, "limit", 5) == 0));
+
+    if (is_lim_call) {
+      advance(p); /* consume '(' */
+      AstNode *expr_arg = parse_expr(p);
+      if (!expr_arg)
+        return NULL;
+      if (!expect(p, TOK_COMMA)) {
+        ast_free(expr_arg);
+        return NULL;
+      }
+      AstNode *var_arg = parse_expr(p);
+      if (!var_arg) {
+        ast_free(expr_arg);
+        return NULL;
+      }
+      if (var_arg->type != AST_VARIABLE) {
+        set_error(p, "lim expects a variable as the second argument");
+        ast_free(expr_arg);
+        ast_free(var_arg);
+        return NULL;
+      }
+      if (!expect(p, TOK_COMMA)) {
+        ast_free(expr_arg);
+        ast_free(var_arg);
+        return NULL;
+      }
+      int direction = 0;
+      AstNode *target = parse_limit_target(p, &direction);
+      if (!target) {
+        ast_free(expr_arg);
+        ast_free(var_arg);
+        return NULL;
+      }
+      if (!expect(p, TOK_RPAREN)) {
+        ast_free(expr_arg);
+        ast_free(var_arg);
+        ast_free(target);
+        return NULL;
+      }
+      AstNode *limit =
+          ast_limit_directed(expr_arg, var_arg->as.variable,
+                             strlen(var_arg->as.variable), target, direction);
+      ast_free(var_arg);
+      return limit;
+    }
+
     if (match(p, TOK_LPAREN)) {
       advance(p);
       AstNode *args[16];
@@ -218,25 +299,11 @@ static AstNode *parse_primary(Parser *p) {
         return NULL;
       }
 
-      if ((len == 3 && strncmp(name, "lim", 3) == 0) ||
-          (len == 5 && strncmp(name, "limit", 5) == 0)) {
-        if (nargs != 3 || args[1]->type != AST_VARIABLE) {
-          set_error(p, "lim expects arguments: lim(expr, var, target)");
-          for (size_t i = 0; i < nargs; i++)
-            ast_free(args[i]);
-          return NULL;
-        }
-
-        AstNode *limit = ast_limit(args[0], args[1]->as.variable,
-                                   strlen(args[1]->as.variable), args[2]);
-        args[0] = NULL;
-        args[2] = NULL;
-        ast_free(args[1]);
-        return limit;
-      }
-
       return ast_func_call(name, len, args, nargs);
     }
+
+    if (len == 3 && strncmp(name, "inf", 3) == 0)
+      return ast_infinity(1);
 
     return ast_variable(name, len);
   }

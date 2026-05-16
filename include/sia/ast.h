@@ -49,6 +49,7 @@ struct AstNode {
       AstNode *expr;
       char *var;
       AstNode *target;
+      int direction; /* 0=two-sided, +1=right (from above), -1=left */
     } limit;
 
     struct {
@@ -78,6 +79,8 @@ AstNode *ast_func_call(const char *name, size_t namelen, AstNode **args,
                        size_t nargs);
 AstNode *ast_limit(AstNode *expr, const char *var, size_t varlen,
                    AstNode *target);
+AstNode *ast_limit_directed(AstNode *expr, const char *var, size_t varlen,
+                            AstNode *target, int direction);
 AstNode *ast_matrix(AstNode **elements, size_t rows, size_t cols);
 AstNode *ast_eq(AstNode *lhs, AstNode *rhs);
 AstNode *ast_infinity(int sign);

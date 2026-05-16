@@ -2200,9 +2200,10 @@ AstNode *sym_expand(AstNode *node) {
     return c;
   }
   case AST_LIMIT:
-    return ast_limit(sym_expand(node->as.limit.expr), node->as.limit.var,
-                     strlen(node->as.limit.var),
-                     sym_expand(node->as.limit.target));
+    return ast_limit_directed(sym_expand(node->as.limit.expr),
+                              node->as.limit.var, strlen(node->as.limit.var),
+                              sym_expand(node->as.limit.target),
+                              node->as.limit.direction);
   case AST_EQ:
     return ast_eq(sym_expand(node->as.eq.lhs), sym_expand(node->as.eq.rhs));
   case AST_BINOP: {
@@ -2298,9 +2299,11 @@ AstNode *sym_reduce_rational_subexprs(const AstNode *node) {
   }
 
   if (node->type == AST_LIMIT) {
-    return ast_limit(sym_reduce_rational_subexprs(node->as.limit.expr),
-                     node->as.limit.var, strlen(node->as.limit.var),
-                     sym_reduce_rational_subexprs(node->as.limit.target));
+    return ast_limit_directed(
+        sym_reduce_rational_subexprs(node->as.limit.expr), node->as.limit.var,
+        strlen(node->as.limit.var),
+        sym_reduce_rational_subexprs(node->as.limit.target),
+        node->as.limit.direction);
   }
 
   return ast_clone(node);

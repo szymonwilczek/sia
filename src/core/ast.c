@@ -83,11 +83,17 @@ AstNode *ast_func_call(const char *name, size_t namelen, AstNode **args,
 
 AstNode *ast_limit(AstNode *expr, const char *var, size_t varlen,
                    AstNode *target) {
+  return ast_limit_directed(expr, var, varlen, target, 0);
+}
+
+AstNode *ast_limit_directed(AstNode *expr, const char *var, size_t varlen,
+                            AstNode *target, int direction) {
   AstNode *n = xmalloc(sizeof *n);
   n->type = AST_LIMIT;
   n->as.limit.expr = expr;
   n->as.limit.var = xstrndup(var, varlen);
   n->as.limit.target = target;
+  n->as.limit.direction = direction < 0 ? -1 : (direction > 0 ? 1 : 0);
   return n;
 }
 
@@ -153,9 +159,10 @@ AstNode *ast_clone(const AstNode *node) {
     return r;
   }
   case AST_LIMIT:
-    return ast_limit(ast_clone(node->as.limit.expr), node->as.limit.var,
-                     strlen(node->as.limit.var),
-                     ast_clone(node->as.limit.target));
+    return ast_limit_directed(ast_clone(node->as.limit.expr),
+                              node->as.limit.var, strlen(node->as.limit.var),
+                              ast_clone(node->as.limit.target),
+                              node->as.limit.direction);
   case AST_MATRIX: {
     size_t total = node->as.matrix.rows * node->as.matrix.cols;
     AstNode **elems = xmalloc(total * sizeof(AstNode *));
@@ -434,6 +441,10 @@ static void ast_serialize(const AstNode *node, StrBuf *sb,
     sb_append(sb, node->as.limit.var, strlen(node->as.limit.var));
     sb_append(sb, ", ", 2);
     ast_serialize(node->as.limit.target, sb, NULL, 0);
+    if (node->as.limit.direction > 0)
+      sb_append(sb, "+", 1);
+    else if (node->as.limit.direction < 0)
+      sb_append(sb, "-", 1);
     sb_append(sb, ")", 1);
     break;
   case AST_EQ:

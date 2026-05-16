@@ -95,8 +95,9 @@ AstNode *sym_subs(const AstNode *expr, const char *var, const AstNode *val) {
       ast_free(target);
       return NULL;
     }
-    return ast_limit(body, expr->as.limit.var, strlen(expr->as.limit.var),
-                     target);
+    return ast_limit_directed(body, expr->as.limit.var,
+                              strlen(expr->as.limit.var), target,
+                              expr->as.limit.direction);
   }
   case AST_MATRIX: {
     size_t total = expr->as.matrix.rows * expr->as.matrix.cols;

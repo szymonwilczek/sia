@@ -235,8 +235,10 @@ static AstNode *substitute_params(const AstNode *node, char **params,
         substitute_params(node->as.limit.expr, body_params, body_args, body_n);
     free(body_params);
     free(body_args);
-    return ast_limit(body, node->as.limit.var, strlen(node->as.limit.var),
-                     substitute_params(node->as.limit.target, params, args, n));
+    return ast_limit_directed(
+        body, node->as.limit.var, strlen(node->as.limit.var),
+        substitute_params(node->as.limit.target, params, args, n),
+        node->as.limit.direction);
   }
   case AST_MATRIX: {
     size_t total = node->as.matrix.rows * node->as.matrix.cols;
