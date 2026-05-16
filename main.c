@@ -3,6 +3,7 @@
 #include "eval.h"
 #include "fractions.h"
 #include "latex.h"
+#include "limits.h"
 #include "matrix.h"
 #include "parser.h"
 #include "solve.h"
@@ -219,6 +220,24 @@ static AstNode *substitute_params(const AstNode *node, char **params,
     free(new_args);
     return c;
   }
+  case AST_LIMIT: {
+    char **body_params = malloc(n * sizeof(char *));
+    AstNode **body_args = malloc(n * sizeof(AstNode *));
+    size_t body_n = 0;
+    for (size_t i = 0; i < n; i++) {
+      if (strcmp(node->as.limit.var, params[i]) != 0) {
+        body_params[body_n] = params[i];
+        body_args[body_n] = args[i];
+        body_n++;
+      }
+    }
+    AstNode *body =
+        substitute_params(node->as.limit.expr, body_params, body_args, body_n);
+    free(body_params);
+    free(body_args);
+    return ast_limit(body, node->as.limit.var, strlen(node->as.limit.var),
+                     substitute_params(node->as.limit.target, params, args, n));
+  }
   case AST_MATRIX: {
     size_t total = node->as.matrix.rows * node->as.matrix.cols;
     AstNode **elems = malloc(total * sizeof(AstNode *));
@@ -293,6 +312,10 @@ static AstNode *substitute_vars(AstNode *node, const SymTab *st) {
     }
     return node;
   }
+  case AST_LIMIT:
+    node->as.limit.target = substitute_vars(node->as.limit.target, st);
+    node->as.limit.expr = substitute_vars(node->as.limit.expr, st);
+    return node;
   }
   return node;
 }
@@ -448,6 +471,20 @@ static AstNode *resolve_symbolic(AstNode *node, const SymTab *st) {
     for (size_t i = 0; i < node->as.call.nargs; i++) {
       node->as.call.args[i] = resolve_symbolic(node->as.call.args[i], st);
     }
+  } else if (node->type == AST_LIMIT) {
+    AstNode *expr = resolve_symbolic(ast_clone(node->as.limit.expr), st);
+    AstNode *target = resolve_symbolic(ast_clone(node->as.limit.target), st);
+    expr = substitute_vars(expr, st);
+    target = substitute_vars(target, st);
+    AstNode *result = sym_limit(expr, node->as.limit.var, target);
+    ast_free(expr);
+    ast_free(target);
+    if (result) {
+      ast_free(node);
+      return resolve_symbolic(result, st);
+    }
+    node->as.limit.expr = resolve_symbolic(node->as.limit.expr, st);
+    node->as.limit.target = resolve_symbolic(node->as.limit.target, st);
   } else if (node->type == AST_BINOP) {
     node->as.binop.left = resolve_symbolic(node->as.binop.left, st);
     node->as.binop.right = resolve_symbolic(node->as.binop.right, st);
@@ -477,6 +514,8 @@ static int has_matrix(const AstNode *node) {
     for (size_t i = 0; i < node->as.call.nargs; i++)
       if (has_matrix(node->as.call.args[i]))
         return 1;
+  if (node->type == AST_LIMIT)
+    return has_matrix(node->as.limit.expr) || has_matrix(node->as.limit.target);
   return 0;
 }
 
