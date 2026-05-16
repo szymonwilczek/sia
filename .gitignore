@@ -1,7 +1,8 @@
 # Build artifacts
-sia
-test_sia
+/sia
+/test_sia
 *.o
 *.d
+compile_flags.txt
 
 # linenoise
